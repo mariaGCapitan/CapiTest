@@ -142,8 +142,9 @@ function examForm(exam) {
           <option value="custom" ${known ? '' : 'selected'}>Otra…</option>
         </select>
       </label>
-      <label class="field" id="pencustom" ${known ? 'hidden' : ''}><span>Aciertos que resta cada error</span>
-        <input type="number" name="penc" min="0" max="2" step="0.01" value="${known ? '' : e.penalty}">
+      <label class="field" id="pencustom" ${known ? 'hidden' : ''}><span>¿Cuántos aciertos quita cada error?</span>
+        <input type="number" name="penc" min="0" max="2" step="0.01" placeholder="Por ejemplo: 0,2" value="${known ? '' : e.penalty}">
+        <span class="muted small" style="font-weight:400;margin-top:5px">0,2 = cada 5 errores se pierde un acierto · 0,5 = cada 2 errores se pierde un acierto</span>
       </label>
       <label class="check"><input type="checkbox" name="sq" ${e.shuffleQ ? 'checked' : ''}><span>Barajar el orden de las preguntas</span></label>
       <label class="check"><input type="checkbox" name="so" ${e.shuffleO ? 'checked' : ''}><span>Barajar el orden de las respuestas</span></label>
@@ -834,6 +835,17 @@ function viewSettings() {
       <label class="field"><span>Profesor/a (sale en la hoja)</span><input type="text" id="prof" value="${esc(st.profesor || '')}"></label>
       <label class="field" style="margin-bottom:0"><span>Centro (sale en la hoja)</span><input type="text" id="centro" value="${esc(st.centro || '')}"></label>
     </div>
+    <h2 class="section">Logos de los exámenes</h2>
+    <div class="card">
+      <div class="row" style="align-items:flex-start">
+        ${[['logoL', 'Izquierda'], ['logoR', 'Derecha']].map(([k, t]) => `<div class="grow">
+          <div class="muted small" style="font-weight:600">${t}</div>
+          ${st[k] ? `<img class="logo" src="${st[k].data}" alt="Logo ${t.toLowerCase()}"><button class="btn small danger" data-rmlogo="${k}">Quitar</button>`
+            : `<label class="btn small" style="margin-top:6px">Elegir imagen<input type="file" accept="image/*" data-logo="${k}" hidden></label>`}
+        </div>`).join('')}
+      </div>
+      <p class="muted small" style="margin-bottom:0">Salen en la cabecera de la hoja de respuestas y del examen. Junto al logo de la izquierda va el nombre del módulo.</p>
+    </div>
     <h2 class="section">Tus datos</h2>
     <div class="card">
       <p style="margin-top:0">Grupos, exámenes y notas se guardan <b>solo en este dispositivo</b>; no se envían a ningún servidor.</p>
@@ -853,6 +865,17 @@ function viewSettings() {
   };
   $('#prof').onchange = save;
   $('#centro').onchange = save;
+  $$('[data-logo]').forEach(inp => (inp.onchange = async () => {
+    if (!inp.files[0]) return;
+    state.settings = { ...state.settings, [inp.dataset.logo]: await prepareImage(inp.files[0], 600) };
+    await db.setMeta('settings', state.settings);
+    viewSettings();
+  }));
+  $$('[data-rmlogo]').forEach(b => (b.onclick = async () => {
+    state.settings = { ...state.settings, [b.dataset.rmlogo]: null };
+    await db.setMeta('settings', state.settings);
+    viewSettings();
+  }));
   $('#exp').onclick = () => {
     const data = { app: 'CapiTest', version: 1, exportedAt: new Date().toISOString(), settings: state.settings, groups: state.groups, exams: state.exams };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
@@ -869,7 +892,10 @@ function viewSettings() {
     if (!confirm(`La copia tiene ${data.groups.length} grupos y ${data.exams.length} exámenes. Se añaden a los que ya hay; los que coincidan se sustituyen. ¿Seguir?`)) return;
     for (const g of data.groups) await db.put('groups', g);
     for (const x of data.exams) await db.put('exams', x);
-    if (data.settings && !state.settings.profesor) await db.setMeta('settings', data.settings);
+    if (data.settings) {
+      const mine = Object.fromEntries(Object.entries(state.settings).filter(([, v]) => v));
+      await db.setMeta('settings', { ...data.settings, ...mine });
+    }
     await load();
     toast('Copia importada.');
     viewSettings();

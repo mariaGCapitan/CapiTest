@@ -110,9 +110,8 @@ export function loadImage(src) {
 }
 
 // Reduce la imagen de una pregunta para que el examen no ocupe demasiado.
-export async function prepareImage(file) {
+export async function prepareImage(file, max = 1400) {
   const img = await loadImage(await readFile(file));
-  const max = 1400;
   const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
   const w = Math.round(img.naturalWidth * s), h = Math.round(img.naturalHeight * s);
   const c = document.createElement('canvas');

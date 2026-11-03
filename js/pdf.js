@@ -62,7 +62,7 @@ export const pdfText = s => String(s ?? '')
 /* ---------- PDF ---------- */
 
 const PT = 0.3528; // mm por punto
-const M = { left: 20, right: 190, top: 22, bottom: 280 };
+const M = { left: 15, right: 195, top: 18, bottom: 284 };
 
 export function examPDF(exam, group, settings, { duplex }) {
   const { jsPDF } = window.jspdf;
@@ -78,7 +78,7 @@ export function examPDF(exam, group, settings, { duplex }) {
     drawAnswerSheet(doc, exam, settings, v, p);
     if (duplex) doc.addPage();
     const before = doc.getNumberOfPages();
-    drawQuestions(doc, exam, v, label);
+    drawQuestions(doc, exam, settings, v, label);
     const qPages = doc.getNumberOfPages() - before + 1;
     if (duplex && qPages % 2) doc.addPage();
   }
@@ -91,21 +91,31 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
   for (const [x, y] of SHEET.marks) doc.rect(x, y, SHEET.markSize, SHEET.markSize, 'F');
 
   const L = 24, W = SHEET.qr.x - L - 6;
-  let y = 30;
-  doc.setTextColor(110);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.text(pdfText([settings.centro, settings.profesor].filter(Boolean).join(' · ') || 'CapiTest'), L, 24, { maxWidth: W });
-  doc.setTextColor(0);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  const title = doc.splitTextToSize(pdfText(exam.title), W).slice(0, 2);
-  doc.text(title, L, y);
-  y += title.length * 6;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.text(pdfText(exam.module || ''), L, y, { maxWidth: W });
-  y += 9;
+  const brand = hasBrand(settings);
+  let y;
+  if (brand) {
+    drawBrand(doc, settings, exam.module, L, SHEET.qr.x - 4, 20, 10);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    const title = doc.splitTextToSize(pdfText(exam.title), W).slice(0, 2);
+    doc.text(title, L, 37);
+    y = 37 + title.length * 5.5 + 2;
+  } else {
+    doc.setTextColor(110);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(pdfText([settings.centro, settings.profesor].filter(Boolean).join(' · ') || 'CapiTest'), L, 24, { maxWidth: W });
+    doc.setTextColor(0);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    const title = doc.splitTextToSize(pdfText(exam.title), W).slice(0, 2);
+    doc.text(title, L, 30);
+    y = 30 + title.length * 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text(pdfText(exam.module || ''), L, y, { maxWidth: W });
+    y += 9;
+  }
   doc.setFontSize(10);
   doc.text('Alumno/a:', L, y);
   if (person.name) {
@@ -130,7 +140,7 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
     + 'Marca una sola respuesta por pregunta; si marcas dos, la pregunta cuenta como en blanco. '
     + 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados negros. '
     + penaltyText(exam.penalty);
-  doc.text(doc.splitTextToSize(pdfText(inst), 166), L, 62);
+  doc.text(doc.splitTextToSize(pdfText(inst), 166), L, 64);
   doc.setTextColor(0);
 
   const lay = bubbleLayout(exam.printed.qids.length, nopt);
@@ -160,6 +170,33 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
   });
 }
 
+const hasBrand = s => !!(s.logoL || s.logoR);
+
+// Logo izquierdo con el nombre del módulo al lado y logo derecho alineado a x1.
+function drawBrand(doc, settings, module, x0, x1, y, h) {
+  const { logoL: lo, logoR: ro } = settings;
+  let x = x0;
+  if (lo) {
+    const w = lo.w / lo.h * h;
+    doc.addImage(lo.data, lo.fmt, x, y, w, h, 'logoL', 'FAST');
+    x += w + 2.5;
+  }
+  let right = x1;
+  if (ro) {
+    const w = ro.w / ro.h * h;
+    right = x1 - w;
+    doc.addImage(ro.data, ro.fmt, right, y, w, h, 'logoR', 'FAST');
+  }
+  if (module) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(30);
+    const lines = doc.splitTextToSize(pdfText(module.toUpperCase()), Math.min(48, right - x - 4)).slice(0, 3);
+    doc.text(lines, x, y + h / 2 - (lines.length - 1) * 1.65 + 1.1, { lineHeightFactor: 1.15 });
+    doc.setTextColor(0);
+  }
+}
+
 function drawQR(doc, text, x, y, size) {
   const qr = window.qrcode(0, 'M');
   qr.addData(text);
@@ -180,76 +217,128 @@ function drawQR(doc, text, x, y, size) {
   }
 }
 
-function drawQuestions(doc, exam, v, label) {
+function drawQuestions(doc, exam, settings, v, label) {
   let page = 1;
   const header = () => {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(110);
-    doc.text(pdfText(`${exam.title} · ${label}`), M.left, 12, { maxWidth: 140 });
-    doc.text(`Página ${page}`, M.right, 12, { align: 'right' });
+    if (page > 1 || !hasBrand(settings)) doc.text(pdfText(`${exam.title} · ${label}`), M.left, 12, { maxWidth: 140 });
+    doc.text(`Página ${page}`, M.right, page > 1 || !hasBrand(settings) ? 12 : 290, { align: 'right' });
     doc.setTextColor(0);
   };
   doc.addPage();
   header();
   let y = M.top;
+  if (hasBrand(settings)) {
+    drawBrand(doc, settings, exam.module, M.left, M.right, 10, 12);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    const t = doc.splitTextToSize(pdfText(exam.title), 56).slice(0, 2);
+    doc.text(t, 105, 15, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(pdfText(label), 105, 15 + t.length * 4.2, { align: 'center', maxWidth: 56 });
+    doc.setDrawColor(190);
+    doc.setLineWidth(0.3);
+    doc.line(M.left, 27, M.right, 27);
+    y = 31;
+  }
+  // Dos columnas: cada pregunta entera en una columna; si no cabe, pasa a la siguiente.
+  const top0 = y;
+  const colW = (M.right - M.left - COL_GAP) / 2;
+  const colX = [M.left, M.left + colW + COL_GAP];
+  let col = 0, top = top0;
+  const divider = () => {
+    doc.setDrawColor(215);
+    doc.setLineWidth(0.2);
+    doc.line(M.left + colW + COL_GAP / 2, top, M.left + colW + COL_GAP / 2, M.bottom);
+  };
+  divider();
   v.order.forEach((qid, i) => {
     const q = exam.questions.find(x => x.id === qid);
     if (!q) return;
-    const h = renderQuestion(doc, q, i + 1, v.perm[qid], M.left, 0, false);
-    if (y + h > M.bottom && y > M.top) {
-      doc.addPage();
-      page++;
-      header();
-      y = M.top;
+    const h = renderQuestion(doc, q, i + 1, v.perm[qid], colX[col], 0, colW, false);
+    if (y + h > M.bottom && y > top) {
+      if (col === 0) { col = 1; y = top; } else {
+        doc.addPage();
+        page++;
+        header();
+        col = 0;
+        top = y = M.top;
+        divider();
+      }
     }
-    y += renderQuestion(doc, q, i + 1, v.perm[qid], M.left, y, true) + 5;
+    y += renderQuestion(doc, q, i + 1, v.perm[qid], colX[col], y, colW, true) + Q_GAP;
   });
 }
 
-// Mide (draw = false) o dibuja una pregunta; devuelve su altura en mm.
-function renderQuestion(doc, q, num, perm, x, y0, draw) {
-  const W = M.right - x;
-  const indent = 8;
+const COL_GAP = 7, Q_GAP = 3.2;
+const FS_Q = 9.5, FS_OPT = 9;
+
+// Mide (draw = false) o dibuja una pregunta en una columna de ancho W; devuelve su altura en mm.
+function renderQuestion(doc, q, num, perm, x, y0, W, draw) {
+  const indent = 6;
   let y = y0;
-  const fs = 10.5, lh = fs * PT * 1.25;
+  const lh = FS_Q * PT * 1.2;
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(fs);
+  doc.setFontSize(FS_Q);
   if (draw) doc.text(`${num}.`, x, y + lh * 0.8);
   doc.setFont('helvetica', 'normal');
   if (q.text) {
     const lines = doc.splitTextToSize(pdfText(q.text), W - indent);
-    if (draw) doc.text(lines, x + indent, y + lh * 0.8, { lineHeightFactor: 1.25 });
-    y += lines.length * lh + 1.5;
+    if (draw) doc.text(lines, x + indent, y + lh * 0.8, { lineHeightFactor: 1.2 });
+    y += lines.length * lh + 0.8;
   }
-  if (q.code) y += codeBlock(doc, q.code, x + indent, y, W - indent, draw) + 2;
+  if (q.code) y += codeBlock(doc, q.code, x + indent, y, W - indent, draw) + 1.2;
   if (q.image) {
-    const maxW = Math.min(W - indent, 130), maxH = 75;
+    const maxW = W - indent, maxH = 55;
     const s = Math.min(maxW / q.image.w, maxH / q.image.h);
     const iw = q.image.w * s, ih = q.image.h * s;
     if (draw) doc.addImage(q.image.data, q.image.fmt, x + indent, y, iw, ih, 'img_' + q.id, 'FAST');
-    y += ih + 2.5;
+    y += ih + 1.5;
   }
   if (!q.text && !q.code && !q.image) y += lh;
+  const olh = FS_OPT * PT * 1.15;
+  // Respuestas cortas: 2 o 4 por fila para ahorrar papel.
+  const avail = W - indent;
+  doc.setFont(q.optsCode ? 'courier' : 'helvetica', 'normal');
+  doc.setFontSize(q.optsCode ? CODE_FS : FS_OPT);
+  const widest = Math.max(...q.options.map(o => (o.text.includes('\n') ? Infinity : doc.getTextWidth(pdfText(o.text))))) + 5 + 3;
+  const per = widest <= avail / 4 ? 4 : widest <= avail / 2 ? 2 : 1;
+  if (per > 1) {
+    const cw = avail / per;
+    perm.forEach((orig, j) => {
+      const cx = x + indent + (j % per) * cw, cy = y + Math.floor(j / per) * (olh + 0.4);
+      if (!draw) return;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(FS_OPT);
+      doc.text(`${LETTERS[j]})`, cx, cy + olh * 0.8);
+      doc.setFont(q.optsCode ? 'courier' : 'helvetica', 'normal');
+      doc.setFontSize(q.optsCode ? CODE_FS : FS_OPT);
+      doc.text(pdfText(q.options[orig].text), cx + 5, cy + olh * 0.8);
+    });
+    y += Math.ceil(perm.length / per) * (olh + 0.4);
+    return y - y0;
+  }
   perm.forEach((orig, j) => {
     const opt = q.options[orig];
-    const lt = `${LETTERS[j]})`;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    if (draw) doc.text(lt, x + indent, y + 4);
+    doc.setFontSize(FS_OPT);
+    if (draw) doc.text(`${LETTERS[j]})`, x + indent, y + olh * 0.8);
     if (q.optsCode) {
-      y += codeLines(doc, opt.text, x + indent + 7, y, W - indent - 7, draw, false) + 1.2;
+      y += codeLines(doc, opt.text, x + indent + 5, y, W - indent - 5, draw, false) + 0.4;
     } else {
       doc.setFont('helvetica', 'normal');
-      const lines = doc.splitTextToSize(pdfText(opt.text), W - indent - 7);
-      if (draw) doc.text(lines, x + indent + 7, y + 4, { lineHeightFactor: 1.2 });
-      y += lines.length * 10 * PT * 1.2 + 1.2;
+      const lines = doc.splitTextToSize(pdfText(opt.text), W - indent - 5);
+      if (draw) doc.text(lines, x + indent + 5, y + olh * 0.8, { lineHeightFactor: 1.15 });
+      y += lines.length * olh + 0.4;
     }
   });
   return y - y0;
 }
 
-const CODE_FS = 9;
+const CODE_FS = 8;
 function wrapCode(doc, code, width) {
   const charW = CODE_FS * 0.6 * PT;
   const per = Math.max(10, Math.floor(width / charW));
@@ -262,9 +351,9 @@ function wrapCode(doc, code, width) {
 }
 
 function codeLines(doc, code, x, y, width, draw, box) {
-  const lines = wrapCode(doc, code, width - (box ? 5 : 0));
-  const lh = CODE_FS * PT * 1.25;
-  const h = lines.length * lh + (box ? 4 : 0.8);
+  const lines = wrapCode(doc, code, width - (box ? 4 : 0));
+  const lh = CODE_FS * PT * 1.2;
+  const h = lines.length * lh + (box ? 3 : 0.6);
   if (draw) {
     if (box) {
       doc.setFillColor(242, 243, 246);
@@ -274,7 +363,7 @@ function codeLines(doc, code, x, y, width, draw, box) {
     }
     doc.setFont('courier', 'normal');
     doc.setFontSize(CODE_FS);
-    lines.forEach((l, i) => doc.text(l, x + (box ? 2.5 : 0), y + (box ? 2 : 0) + lh * (i + 0.8)));
+    lines.forEach((l, i) => doc.text(l, x + (box ? 2 : 0), y + (box ? 1.5 : 0) + lh * (i + 0.8)));
   }
   return h;
 }
