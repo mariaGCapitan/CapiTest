@@ -40,7 +40,7 @@ async function saveGroup(g) {
 const main = () => $('#main');
 
 function setHeader(title, back, actions = '') {
-  $('#title').innerHTML = (back ? `<a class="back" href="${back}" aria-label="Volver">‹</a>` : '') + `<span>${esc(title)}</span>`;
+  $('#title').innerHTML = (back ? `<a class="back" href="${back}" aria-label="Volver">‹</a>` : '<img class="mini" src="img/logo_gc.png" alt="">') + `<span>${esc(title)}</span>`;
   $('#top-actions').innerHTML = actions;
 }
 function setNav(name) {
@@ -92,18 +92,20 @@ function viewExams() {
   if (!list.length) {
     html += `<p class="empty">Todavía no hay exámenes.<br>Crea uno y sube el archivo de Moodle (XML o GIFT).</p>`;
   }
-  for (const m of mods) {
-    html += `<h2 class="section">${esc(m)}</h2>`;
+  const tonos = ['azul', 'magenta', 'naranja', 'verde'];
+  mods.forEach((m, i) => {
+    const tono = `var(--${tonos[i % 4]})`;
+    html += `<h2 class="section" style="color:${tono}">${esc(m)}</h2>`;
     for (const e of list.filter(x => (x.module || 'Sin módulo') === m)) {
       const g = groupById(e.groupId);
       const total = g?.students.length || 0;
       const done = Object.keys(e.results || {}).length;
-      html += `<a class="card" href="#/examen/${e.id}">
+      html += `<a class="card" style="border-left:4px solid ${tono}" href="#/examen/${e.id}">
         <div class="card-title">${esc(e.title)}</div>
         <div class="muted">${esc(g?.name || 'Sin grupo')} · ${e.questions.length} preguntas · ${done}/${total} corregidos</div>
       </a>`;
     }
-  }
+  });
   main().innerHTML = html;
   $('#new').onclick = () => examForm(null);
 }
@@ -857,7 +859,7 @@ function viewSettings() {
       <p class="muted small">La copia es un archivo con todo. Guárdalo en tu nube o pásaselo a otro dispositivo para continuar allí.</p>
     </div>
     <button class="btn danger block" id="wipe">Borrar todos los datos de este dispositivo</button>
-    <p class="muted small" style="text-align:center;margin-top:20px">CapiTest</p>`;
+    <div class="marca"><img src="img/logo_junta.png" alt="Junta de Andalucía"><span>CapiTest</span><img src="img/logo_gc.png" alt="IES Gran Capitán"></div>`;
   const save = async () => {
     state.settings = { ...state.settings, profesor: $('#prof').value.trim(), centro: $('#centro').value.trim() };
     await db.setMeta('settings', state.settings);

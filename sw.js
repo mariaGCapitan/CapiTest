@@ -1,13 +1,13 @@
 // Permite abrir CapiTest sin conexión. Primero intenta la red (para tener siempre la última versión)
 // y, si no hay, usa la copia guardada.
 
-const CACHE = 'capitest-v2';
+const CACHE = 'capitest-v3';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/db.js', 'js/util.js', 'js/layout.js', 'js/import.js', 'js/grading.js',
   'js/pdf.js', 'js/omr.js', 'js/scan.js', 'js/excel.js',
   'vendor/jspdf.umd.min.js', 'vendor/jsQR.js', 'vendor/qrcode.js', 'vendor/xlsx.full.min.js',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
+  'img/logo_gc.png', 'img/logo_junta.png', 'icons/favicon-32.png', 'icons/favicon-64.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', e => {
