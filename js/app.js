@@ -1,7 +1,7 @@
 import { db, askPersistence } from './db.js';
 import {
   $, $$, esc, uid, toast, LETTERS, fmtNota, fmtDate, PENALTIES, penaltyText,
-  canShareFiles, shareFile, downloadFile, readFile, prepareImage, safeName,
+  canShareFiles, shareFile, downloadFile, readFile, loadImage, prepareImage, safeName,
 } from './util.js';
 import { maxQuestions } from './layout.js';
 import { importExamFile, MAX_OPTS } from './import.js';
@@ -33,6 +33,24 @@ async function saveGroup(g) {
   await db.put('groups', g);
   const i = state.groups.findIndex(x => x.id === g.id);
   if (i < 0) state.groups.push(g); else state.groups[i] = g;
+}
+
+// Logos de los exámenes: sin elegir (null) salen los del centro; false = sin logo.
+const DEFAULT_LOGOS = { logoL: 'img/logo_junta.png', logoR: 'img/logo_gc.png' };
+const logoCache = {};
+async function printSettings() {
+  const s = { ...state.settings };
+  for (const k of ['logoL', 'logoR']) {
+    if (s[k] === false) { s[k] = null; continue; }
+    if (s[k]) continue;
+    if (!logoCache[k]) {
+      const data = await readFile(await (await fetch(DEFAULT_LOGOS[k])).blob());
+      const img = await loadImage(data);
+      logoCache[k] = { data, w: img.naturalWidth, h: img.naturalHeight, fmt: 'PNG' };
+    }
+    s[k] = logoCache[k];
+  }
+  return s;
 }
 
 /* ---------- Estructura ---------- */
@@ -401,7 +419,7 @@ function tabPrint(exam, el) {
     try {
       exam.printed = buildPrint(exam, g, reserves);
       await saveExam(exam);
-      const blob = examPDF(exam, g, state.settings, { duplex });
+      const blob = examPDF(exam, g, await printSettings(), { duplex });
       state.pdf = { blob, filename: `CapiTest_${safeName(exam.title)}.pdf` };
       tabPrint(exam, el);
       showPdfOut();
@@ -421,7 +439,7 @@ function showPdfOut() {
   const kb = Math.round(state.pdf.blob.size / 1024);
   out.innerHTML = `<div class="card"><div class="card-title">PDF listo (${kb} KB)</div>
     <div class="row" style="margin-top:10px">
-      ${canShareFiles() ? '<button class="btn primary grow" id="share">Compartir</button>' : ''}
+      ${canShareFiles() ? '<button class="btn grow" id="share">Compartir</button>' : ''}
       <button class="btn grow" id="dl">Descargar</button>
       <button class="btn grow" id="open">Abrir</button>
     </div></div>`;
@@ -604,7 +622,7 @@ function tabGrades(exam, el) {
       <div class="card"><b>${sm.aprobados}</b><span class="muted small">aprobados</span></div>
     </div>
     <div class="row" style="margin-bottom:14px">
-      ${canShareFiles() ? '<button class="btn primary grow" id="xshare">Enviar Excel</button>' : ''}
+      ${canShareFiles() ? '<button class="btn grow" id="xshare">Enviar Excel</button>' : ''}
       <button class="btn grow" id="xdl">Descargar Excel</button>
     </div>
     <table class="list">
@@ -840,11 +858,17 @@ function viewSettings() {
     <h2 class="section">Logos de los exámenes</h2>
     <div class="card">
       <div class="row" style="align-items:flex-start">
-        ${[['logoL', 'Izquierda'], ['logoR', 'Derecha']].map(([k, t]) => `<div class="grow">
-          <div class="muted small" style="font-weight:600">${t}</div>
-          ${st[k] ? `<img class="logo" src="${st[k].data}" alt="Logo ${t.toLowerCase()}"><button class="btn small danger" data-rmlogo="${k}">Quitar</button>`
-            : `<label class="btn small" style="margin-top:6px">Elegir imagen<input type="file" accept="image/*" data-logo="${k}" hidden></label>`}
-        </div>`).join('')}
+        ${[['logoL', 'Izquierda'], ['logoR', 'Derecha']].map(([k, t]) => {
+          const v = st[k];
+          const pick = `<label class="btn small">${v === false ? 'Elegir imagen' : 'Cambiar'}<input type="file" accept="image/*" data-logo="${k}" hidden></label>`;
+          const reset = `<button class="btn small" data-deflogo="${k}">Usar el del centro</button>`;
+          const rm = `<button class="btn small danger" data-rmlogo="${k}">Quitar</button>`;
+          let body;
+          if (v === false) body = `<p class="muted small">Sin logo</p><div class="row">${pick}${reset}</div>`;
+          else if (v) body = `<img class="logo" src="${v.data}" alt="Logo ${t.toLowerCase()}"><div class="row">${pick}${reset}${rm}</div>`;
+          else body = `<img class="logo" src="${DEFAULT_LOGOS[k]}" alt="Logo del centro"><div class="row">${pick}${rm}</div>`;
+          return `<div class="grow"><div class="muted small" style="font-weight:600">${t}${v == null ? ' (del centro)' : ''}</div>${body}</div>`;
+        }).join('')}
       </div>
       <p class="muted small" style="margin-bottom:0">Salen en la cabecera de la hoja de respuestas y del examen. Junto al logo de la izquierda va el nombre del módulo.</p>
     </div>
@@ -853,7 +877,7 @@ function viewSettings() {
       <p style="margin-top:0">Grupos, exámenes y notas se guardan <b>solo en este dispositivo</b>; no se envían a ningún servidor.</p>
       ${standalone ? '' : `<div class="banner warn">En iPhone, añade CapiTest a la pantalla de inicio (Compartir → «Añadir a pantalla de inicio») y ábrela desde ahí. Si solo la usas desde Safari, el sistema puede borrar los datos tras unas semanas sin abrirla.</div>`}
       <div class="row">
-        <button class="btn primary grow" id="exp">Exportar copia</button>
+        <button class="btn grow" id="exp">Exportar copia</button>
         <label class="btn grow">Importar copia<input type="file" id="imp" accept=".json,application/json" hidden></label>
       </div>
       <p class="muted small">La copia es un archivo con todo. Guárdalo en tu nube o pásaselo a otro dispositivo para continuar allí.</p>
@@ -874,7 +898,12 @@ function viewSettings() {
     viewSettings();
   }));
   $$('[data-rmlogo]').forEach(b => (b.onclick = async () => {
-    state.settings = { ...state.settings, [b.dataset.rmlogo]: null };
+    state.settings = { ...state.settings, [b.dataset.rmlogo]: false };
+    await db.setMeta('settings', state.settings);
+    viewSettings();
+  }));
+  $$('[data-deflogo]').forEach(b => (b.onclick = async () => {
+    state.settings = { ...state.settings, [b.dataset.deflogo]: null };
     await db.setMeta('settings', state.settings);
     viewSettings();
   }));
