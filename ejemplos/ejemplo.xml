@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<quiz>
+<question type="category"><category><text>$course$/Redes/Examen topologías</text></category></question>
+<question type="multichoice">
+ <name><text>Topología</text></name>
+ <questiontext format="html"><text><![CDATA[<p>¿Qué dispositivo de la imagen trabaja en la capa 3?</p><p><img src="@@PLUGINFILE@@/red.png" alt=""></p>]]></text>
+  <file name="red.png" path="/" encoding="base64">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</file></questiontext>
+ <single>true</single>
+ <answer fraction="100" format="html"><text><![CDATA[<p>El router</p>]]></text></answer>
+ <answer fraction="0" format="html"><text><![CDATA[<p>El switch</p>]]></text></answer>
+ <answer fraction="0" format="html"><text><![CDATA[<p>El PC</p>]]></text></answer>
+</question>
+<question type="multichoice">
+ <name><text>Bucle</text></name>
+ <questiontext format="html"><text><![CDATA[<p>¿Cuántas veces se ejecuta el <code>print</code>?</p><pre>for i in range(2, 10, 3):
+    print(i)</pre>]]></text></questiontext>
+ <single>true</single>
+ <answer fraction="0"><text>2</text></answer>
+ <answer fraction="100"><text>3</text></answer>
+ <answer fraction="0"><text>4</text></answer>
+ <answer fraction="0"><text>8</text></answer>
+ <answer fraction="0"><text>Ninguna</text></answer>
+</question>
+<question type="truefalse">
+ <name><text>VF</text></name>
+ <questiontext format="html"><text><![CDATA[<p>HTTP usa por defecto el puerto 80.</p>]]></text></questiontext>
+ <answer fraction="100"><text>true</text></answer>
+ <answer fraction="0"><text>false</text></answer>
+</question>
+<question type="essay"><name><text>Desarrollo</text></name><questiontext format="html"><text>Explica…</text></questiontext></question>
+</quiz>

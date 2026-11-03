@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CapiTest</title>
+<meta name="description" content="Exámenes tipo test: genera las hojas y corrígelas con la cámara del móvil.">
+<meta name="theme-color" content="#3b5bdb">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CapiTest">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="stylesheet" href="css/app.css">
+<script src="vendor/jspdf.umd.min.js" defer></script>
+<script src="vendor/jsQR.js" defer></script>
+<script src="vendor/qrcode.js" defer></script>
+<script src="vendor/xlsx.full.min.js" defer></script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <h1 id="title">CapiTest</h1>
+    <div id="top-actions"></div>
+  </div>
+</header>
+<main id="main"></main>
+<nav class="tabs">
+  <a href="#/" data-nav="examenes"><span class="ico">📝</span>Exámenes</a>
+  <a href="#/grupos" data-nav="grupos"><span class="ico">👥</span>Grupos</a>
+  <a href="#/ajustes" data-nav="ajustes"><span class="ico">⚙️</span>Ajustes</a>
+</nav>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

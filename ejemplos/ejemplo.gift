@@ -1,0 +1,39 @@
+// Ejemplo de examen en formato GIFT para CapiTest
+$CATEGORY: $course$/Python ASIR/Examen UD2
+
+::P1:: ¿Qué tipo de dato devuelve input() en Python? {
+=str
+~int
+~float
+~depende de lo que escriba el usuario
+}
+
+::P2:: [markdown] ¿Qué muestra este programa?
+```
+x = [1, 2, 3]
+print(len(x) * 2)
+```
+{
+=`6`
+~`3`
+~`[1, 2, 3, 1, 2, 3]`
+~`Error`
+}
+
+::P3:: Una lista en Python es mutable. {T}
+
+::P4:: ¿Qué operador calcula el resto de una división entera? {
+=%
+~//
+~/
+~**
+}
+
+::P5:: ¿Cuál es la forma correcta de un diccionario vacío? {
+=\{\}
+~[]
+~()
+~set()
+}
+
+::P6:: Escribe el nombre de la función que ordena una lista {=sorted =sort}
