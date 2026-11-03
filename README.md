@@ -21,6 +21,10 @@ Solo se importan preguntas de opción múltiple (de 2 a 5 respuestas) y de verda
 
 Todo se guarda en el dispositivo (IndexedDB); no hay servidor. Para no perder nada, usa **Ajustes → Exportar copia**. En iPhone conviene añadir la app a la pantalla de inicio.
 
+## Autoría
+
+María Ojeda García · IES Gran Capitán (Córdoba).
+
 ## Publicación
 
 Es una web estática sin compilación: basta con servir esta carpeta por HTTPS (por ejemplo, GitHub Pages desde un repositorio público). La cámara solo funciona con HTTPS o en `localhost`.

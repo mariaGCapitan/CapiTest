@@ -883,7 +883,7 @@ function viewSettings() {
       <p class="muted small">La copia es un archivo con todo. Guárdalo en tu nube o pásaselo a otro dispositivo para continuar allí.</p>
     </div>
     <button class="btn danger block" id="wipe">Borrar todos los datos de este dispositivo</button>
-    <div class="marca"><img src="img/logo_junta.png" alt="Junta de Andalucía"><span>CapiTest</span><img src="img/logo_gc.png" alt="IES Gran Capitán"></div>`;
+    <div class="marca"><img src="img/logo_junta.png" alt="Junta de Andalucía"><span>CapiTest<small>María Ojeda García</small></span><img src="img/logo_gc.png" alt="IES Gran Capitán"></div>`;
   const save = async () => {
     state.settings = { ...state.settings, profesor: $('#prof').value.trim(), centro: $('#centro').value.trim() };
     await db.setMeta('settings', state.settings);
