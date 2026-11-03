@@ -106,7 +106,8 @@ function viewExams() {
   setNav('examenes');
   const list = [...state.exams].sort((a, b) => (b.created || 0) - (a.created || 0));
   const mods = [...new Set(list.map(e => e.module || 'Sin módulo'))];
-  let html = `<button class="btn primary block" id="new">+ Nuevo examen</button>`;
+  let html = `<div class="row"><button class="btn primary grow" id="new">+ Nuevo examen</button>
+    <label class="btn">Importar<input type="file" id="impx" accept=".json,application/json" hidden></label></div>`;
   if (!list.length) {
     html += `<p class="empty">Todavía no hay exámenes.<br>Crea uno y sube el archivo de Moodle (XML o GIFT).</p>`;
   }
@@ -126,6 +127,11 @@ function viewExams() {
   });
   main().innerHTML = html;
   $('#new').onclick = () => examForm(null);
+  $('#impx').onchange = async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) await importData(file);
+  };
 }
 
 function examForm(exam) {
@@ -260,8 +266,14 @@ function viewExam(id, tab) {
   const exam = examById(id);
   if (!exam) { location.hash = '#/'; return; }
   setNav('examenes');
-  setHeader(exam.title, '#/', `<button class="btn small" id="edit">Datos</button>`);
+  setHeader(exam.title, '#/', `<button class="btn small" id="xpt">Exportar</button><button class="btn small" id="edit">Datos</button>`);
   $('#edit').onclick = () => examForm(exam);
+  $('#xpt').onclick = () => {
+    if (!exam.printed && !confirm('Aún no has generado el PDF de este examen. Para corregirlo en otro dispositivo, exporta después de generar el PDF. ¿Exportar igualmente?')) return;
+    if (exam.printed && printState(exam, groupById(exam.groupId)) === 'stale' && !confirm('Las preguntas han cambiado desde el último PDF. Genera el PDF otra vez antes de exportar. ¿Exportar igualmente?')) return;
+    const g = groupById(exam.groupId);
+    exportData({ groups: g ? [g] : [], exams: [exam] }, `CapiTest_examen_${safeName(exam.title)}.json`);
+  };
   const tabs = [['preguntas', 'Preguntas'], ['imprimir', 'Imprimir'], ['corregir', 'Corregir'], ['notas', 'Notas']];
   main().innerHTML = `<div class="seg">${tabs.map(([k, t]) => `<a href="#/examen/${id}/${k}" class="${k === tab ? 'on' : ''}">${t}</a>`).join('')}</div><div id="tab"></div>`;
   const el = $('#tab');
@@ -732,7 +744,8 @@ function viewGroup(id) {
       <ul class="students">${g.students.map(s => `<li><span>${esc(s.name)}</span><button class="iconbtn" data-rn="${s.id}" aria-label="Renombrar">✎</button><button class="iconbtn" data-del="${s.id}" aria-label="Quitar">✕</button></li>`).join('')}</ul>
       <form id="addf" class="row" style="margin-top:10px"><input type="text" name="n" class="grow" placeholder="Añadir alumno/a"><button class="btn">Añadir</button></form>
     </div>
-    <button class="btn danger block" id="delg">Borrar grupo</button>`;
+    <div class="row"><button class="btn grow" id="xptg">Exportar grupo</button><button class="btn danger grow" id="delg">Borrar grupo</button></div>`;
+  $('#xptg').onclick = () => exportData({ groups: [g] }, `CapiTest_grupo_${safeName(g.name)}.json`);
   $('#gname').onchange = async e => { g.name = e.target.value.trim() || g.name; await saveGroup(g); setHeader(g.name, '#/grupos'); };
   $('#addf').onsubmit = async e => {
     e.preventDefault();
@@ -907,29 +920,11 @@ function viewSettings() {
     await db.setMeta('settings', state.settings);
     viewSettings();
   }));
-  $('#exp').onclick = () => {
-    const data = { app: 'CapiTest', version: 1, exportedAt: new Date().toISOString(), settings: state.settings, groups: state.groups, exams: state.exams };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const fn = `CapiTest_copia_${new Date().toISOString().slice(0, 10)}.json`;
-    if (canShareFiles()) shareFile(blob, fn, 'Copia de CapiTest'); else downloadFile(blob, fn);
-  };
+  $('#exp').onclick = () => exportData({ settings: state.settings, groups: state.groups, exams: state.exams }, `CapiTest_copia_${new Date().toISOString().slice(0, 10)}.json`);
   $('#imp').onchange = async e => {
     const file = e.target.files[0];
     e.target.value = '';
-    if (!file) return;
-    let data;
-    try { data = JSON.parse(await readFile(file, 'text')); } catch { return toast('El archivo no es una copia válida.'); }
-    if (data.app !== 'CapiTest') return toast('El archivo no es una copia de CapiTest.');
-    if (!confirm(`La copia tiene ${data.groups.length} grupos y ${data.exams.length} exámenes. Se añaden a los que ya hay; los que coincidan se sustituyen. ¿Seguir?`)) return;
-    for (const g of data.groups) await db.put('groups', g);
-    for (const x of data.exams) await db.put('exams', x);
-    if (data.settings) {
-      const mine = Object.fromEntries(Object.entries(state.settings).filter(([, v]) => v));
-      await db.setMeta('settings', { ...data.settings, ...mine });
-    }
-    await load();
-    toast('Copia importada.');
-    viewSettings();
+    if (file) await importData(file);
   };
   $('#wipe').onclick = async () => {
     if (!confirm('¿Borrar TODOS los grupos, exámenes y notas de este dispositivo? No se puede deshacer.')) return;
@@ -938,6 +933,40 @@ function viewSettings() {
     await load();
     location.hash = '#/';
   };
+}
+
+/* ---------- Copias ---------- */
+
+function exportData(parts, filename) {
+  const data = { app: 'CapiTest', version: 1, exportedAt: new Date().toISOString(), groups: [], exams: [], ...parts };
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  if (canShareFiles()) shareFile(blob, filename, filename); else downloadFile(blob, filename);
+}
+
+async function importData(file) {
+  let data;
+  try { data = JSON.parse(await readFile(file, 'text')); } catch { return toast('El archivo no es una copia válida.'); }
+  if (data.app !== 'CapiTest') return toast('El archivo no es una copia de CapiTest.');
+  const groups = data.groups || [], exams = data.exams || [];
+  const what = [groups.length && `${groups.length} grupo(s)`, exams.length && `${exams.length} examen(es)`].filter(Boolean).join(' y ') || 'nada';
+  const lost = exams.map(x => {
+    const here = examById(x.id);
+    const a = Object.keys(here?.results || {}).length, b = Object.keys(x.results || {}).length;
+    return here && a > b ? `\n· «${here.title}»: aquí tiene ${a} notas y la copia trae ${b}.` : '';
+  }).join('');
+  const warn = lost ? `\n\nOjo, perderías notas:${lost}` : '';
+  if (!confirm(`La copia trae ${what}. Se añade a lo que ya hay; lo que coincida se sustituye.${warn}\n\n¿Seguir?`)) return;
+  for (const g of groups) await db.put('groups', g);
+  for (const x of exams) await db.put('exams', x);
+  if (data.settings) {
+    const mine = Object.fromEntries(Object.entries(state.settings).filter(([, v]) => v));
+    await db.setMeta('settings', { ...data.settings, ...mine });
+  }
+  await load();
+  toast('Copia importada.');
+  if (exams.length === 1) location.hash = `#/examen/${exams[0].id}/corregir`;
+  else if (!exams.length && groups.length === 1) location.hash = `#/grupo/${groups[0].id}`;
+  else route();
 }
 
 /* ---------- Arranque ---------- */
