@@ -17,7 +17,7 @@ export const SHEET = {
   numW: 9,
   optW: 7.5,
   gap: 6,
-  r: 2.4, // radio de cada círculo
+  r: 1.9, // radio de cada círculo (3,8 mm de diámetro)
 };
 
 export function markCenters() {

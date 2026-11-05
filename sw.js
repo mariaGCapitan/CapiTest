@@ -1,7 +1,7 @@
 // Permite abrir CapiTest sin conexión. Primero intenta la red (para tener siempre la última versión)
 // y, si no hay, usa la copia guardada.
 
-const CACHE = 'capitest-v9';
+const CACHE = 'capitest-v10';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/db.js', 'js/util.js', 'js/layout.js', 'js/import.js', 'js/grading.js',
