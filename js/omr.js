@@ -112,7 +112,7 @@ function isSquare(c) {
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 // Elige las cuatro marcas: el cuadrilátero convexo más grande con forma de folio.
-function pickMarkers(cands) {
+function pickMarkers(cands, w, h) {
   cands.sort((a, b) => b.cnt - a.cnt);
   const C = cands.slice(0, 14);
   let best = null;
@@ -143,9 +143,10 @@ function pickMarkers(cands) {
     let area = 0;
     for (let i = 0; i < 4; i++) area += pts[i][0] * pts[(i + 1) % 4][1] - pts[(i + 1) % 4][0] * pts[i][1];
     area = Math.abs(area) / 2;
+    if (area < w * h * 0.12) continue; // la hoja tiene que ocupar buena parte de la imagen
     if (!best || area > best.area) best = { pts, area };
   }
-  return best && best.pts;
+  return best;
 }
 
 /* ---------- Perspectiva ---------- */
@@ -198,10 +199,48 @@ function prepare(canvas) {
   return { c, w, h, s, bin: binarize(toGray(img), w, h) };
 }
 
+// Suma de una ventana cuadrada de radio r en cada píxel (bordes recortados).
+function boxSum(src, w, h, r) {
+  const W1 = w + 1;
+  const ii = new Int32Array(W1 * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) {
+      row += src[y * w + x];
+      ii[(y + 1) * W1 + x + 1] = ii[y * W1 + x + 1] + row;
+    }
+  }
+  const out = new Int32Array(w * h), area = new Int32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const y1 = Math.max(0, y - r), y2 = Math.min(h - 1, y + r);
+    for (let x = 0; x < w; x++) {
+      const x1 = Math.max(0, x - r), x2 = Math.min(w - 1, x + r);
+      out[y * w + x] = ii[(y2 + 1) * W1 + x2 + 1] - ii[y1 * W1 + x2 + 1] - ii[(y2 + 1) * W1 + x1] + ii[y1 * W1 + x1];
+      area[y * w + x] = (x2 - x1 + 1) * (y2 - y1 + 1);
+    }
+  }
+  return { out, area };
+}
+
+// Apertura morfológica: borra rayas y trazos más finos que 2r+1 píxeles (bolígrafo, bordes,
+// sombras) que se peguen a los cuadrados, y deja los cuadrados como estaban.
+function removeThin(bin, w, h, r) {
+  const e = boxSum(bin, w, h, r);
+  const eroded = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) eroded[i] = e.out[i] === e.area[i] ? 1 : 0;
+  const d = boxSum(eroded, w, h, r);
+  const opened = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) opened[i] = d.out[i] > 0 ? 1 : 0;
+  return opened;
+}
+
 export function findSheet(bin, w, h) {
   const minSide = Math.max(w, h) * 0.012, maxSide = Math.max(w, h) * 0.12;
-  const cands = components(bin, w, h, minSide * minSide * 0.6, maxSide * maxSide * 1.2).filter(isSquare);
-  return pickMarkers(cands);
+  const find = b => pickMarkers(components(b, w, h, minSide * minSide * 0.6, maxSide * maxSide * 1.2).filter(isSquare), w, h);
+  const plain = find(bin);
+  const clean = find(removeThin(bin, w, h, Math.max(1, Math.round(Math.max(w, h) / 300))));
+  const best = !plain ? clean : !clean ? plain : clean.area > plain.area * 1.02 ? clean : plain;
+  return best && best.pts;
 }
 
 // Para el visor en directo: solo dice si ve la hoja y dónde.

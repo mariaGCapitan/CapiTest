@@ -534,12 +534,15 @@ function tabScan(exam, el) {
     <p class="muted small">Consejos: hoja sobre la mesa y bien iluminada, sin sombras del móvil; que se vean los cuatro cuadrados de las esquinas. Si en papel falta alguno, imprime de nuevo la hoja.</p>`;
   $('#startcam').onclick = async () => {
     if (!navigator.mediaDevices?.getUserMedia) return toast('Este navegador no deja usar la cámara. Prueba «Desde una foto».');
-    $('#cam').innerHTML = `<video playsinline muted></video><canvas class="ov"></canvas><div class="scan-msg">Abriendo la cámara…</div>`;
+    $('#cam').innerHTML = `<div class="vbox"><video playsinline muted></video><canvas class="ov"></canvas></div><div class="scan-msg">Abriendo la cámara…</div>`;
     $('#startcam').hidden = true;
     stopScanner();
     const sc = new Scanner($('#cam video'), $('#cam canvas'), $('#cam .scan-msg'), an => handleScan(exam, an));
     state.scanner = sc;
-    try { await sc.start(); } catch (e) {
+    try {
+      await sc.start();
+      fitCamera();
+    } catch (e) {
       console.error(e);
       state.scanner = null;
       $('#cam').innerHTML = `<div class="placeholder">No se ha podido abrir la cámara (${esc(e.name || e.message)}). Revisa el permiso de cámara del navegador.</div>`;
@@ -556,6 +559,18 @@ function tabScan(exam, el) {
     handleScan(exam, an);
   };
 }
+
+// Ajusta el visor para que entre en pantalla con el mensaje y los botones a la vista.
+function fitCamera() {
+  const cam = $('#cam'), box = $('#cam .vbox'), v = $('#cam video');
+  if (!cam || !box || !v || !v.videoWidth) return;
+  const maxH = Math.min(window.innerHeight * 0.55, 560);
+  let w = cam.clientWidth, h = w * v.videoHeight / v.videoWidth;
+  if (h > maxH) { h = maxH; w = h * v.videoWidth / v.videoHeight; }
+  box.style.width = `${w}px`;
+  box.style.height = `${h}px`;
+}
+window.addEventListener('resize', fitCamera);
 
 function showScanError(msg) {
   const r = $('#result');

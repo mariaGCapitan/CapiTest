@@ -1,7 +1,7 @@
 // Permite abrir CapiTest sin conexión. Primero intenta la red (para tener siempre la última versión)
 // y, si no hay, usa la copia guardada.
 
-const CACHE = 'capitest-v8';
+const CACHE = 'capitest-v9';
 const FILES = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/db.js', 'js/util.js', 'js/layout.js', 'js/import.js', 'js/grading.js',
@@ -22,8 +22,12 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  // no-cache: pregunta siempre al servidor si hay versión nueva, en vez de fiarse de la caché del navegador.
+  const fresh = e.request.mode === 'navigate'
+    ? fetch(e.request.url, { cache: 'no-cache' })
+    : fetch(new Request(e.request, { cache: 'no-cache' }));
   e.respondWith(
-    fetch(e.request)
+    fresh
       .then(r => {
         if (r.ok) {
           const copy = r.clone();
