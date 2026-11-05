@@ -202,16 +202,26 @@ function drawBrand(doc, settings, module, x0, x1, y, h) {
   }
 }
 
-// Los dos logos juntos, centrados en cx.
+// Logo izquierdo, «CapiTest» y logo derecho, centrados en cx.
 function drawLogosCentered(doc, settings, cx, y, h) {
-  const logos = [['logoL', settings.logoL], ['logoR', settings.logoR]].filter(([, l]) => l);
-  const gap = 6;
-  const widths = logos.map(([, l]) => l.w / l.h * h);
-  let x = cx - (widths.reduce((a, b) => a + b, 0) + gap * (logos.length - 1)) / 2;
-  logos.forEach(([alias, l], i) => {
-    doc.addImage(l.data, l.fmt, x, y, widths[i], h, alias, 'FAST');
-    x += widths[i] + gap;
-  });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  const items = [
+    settings.logoL && { img: settings.logoL, alias: 'logoL', w: settings.logoL.w / settings.logoL.h * h },
+    { text: 'CapiTest', w: doc.getTextWidth('CapiTest') },
+    settings.logoR && { img: settings.logoR, alias: 'logoR', w: settings.logoR.w / settings.logoR.h * h },
+  ].filter(Boolean);
+  const gap = 5;
+  let x = cx - (items.reduce((a, it) => a + it.w, 0) + gap * (items.length - 1)) / 2;
+  for (const it of items) {
+    if (it.img) doc.addImage(it.img.data, it.img.fmt, x, y, it.w, h, it.alias, 'FAST');
+    else {
+      doc.setTextColor(27, 117, 187);
+      doc.text(it.text, x, y + h / 2 + 1.8);
+      doc.setTextColor(0);
+    }
+    x += it.w + gap;
+  }
 }
 
 function drawQR(doc, text, x, y, size) {

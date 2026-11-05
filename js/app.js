@@ -418,7 +418,6 @@ function tabPrint(exam, el) {
   if (!n) { el.innerHTML = `<p class="empty">Primero importa las preguntas.</p>`; return; }
   if (n > max) { el.innerHTML = `<div class="banner bad">Hay ${n} preguntas y en la hoja caben ${max}.</div>`; return; }
   if (!g || !g.students.length) html += `<div class="banner warn">El grupo no tiene alumnado; solo se imprimirán hojas de reserva.</div>`;
-  if (st === 'layout') html += `<div class="banner warn">La hoja de respuestas tiene un diseño nuevo: los cuadrados de abajo están más arriba para que cualquier impresora los imprima. Genera el PDF otra vez; las hojas impresas antes no valen.</div>`;
   if (st === 'stale') html += `<div class="banner warn">Las preguntas han cambiado desde la última impresión. Al generar el PDF se crean versiones nuevas y las hojas impresas antes dejan de valer.</div>`;
   if (st === 'partial') html += `<div class="banner info">Hay alumnado nuevo en el grupo. Al generar el PDF se le crea su versión; las del resto no cambian.</div>`;
   if (st === 'ok') html += `<div class="banner ok">Versiones creadas el ${fmtDate(exam.printed.at)}. Si vuelves a generar el PDF, cada alumno o alumna conserva su misma versión.</div>`;
