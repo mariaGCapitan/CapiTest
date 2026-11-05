@@ -1,13 +1,18 @@
 // Geometría de la hoja de respuestas, en milímetros sobre un A4 vertical.
 // La usan a la vez el generador del PDF y el lector de la cámara.
 
+// Cambia LAYOUT cuando se mueva algo que lee la cámara: las hojas impresas con otra geometría dejan de valer.
+export const LAYOUT = 2;
+
 export const SHEET = {
   w: 210,
   h: 297,
   markSize: 10,
-  marks: [[10, 10], [190, 10], [10, 277], [190, 277]], // esquina superior izquierda de cada marca: TL, TR, BL, BR
+  // Esquina superior izquierda de cada marca: TL, TR, BL, BR. Las de abajo, a 24 mm del borde,
+  // porque muchas impresoras no imprimen la franja inferior.
+  marks: [[10, 10], [190, 10], [10, 263], [190, 263]],
   qr: { x: 160, y: 26, size: 28 },
-  grid: { top: 80, bottom: 272, left: 22, right: 188 },
+  grid: { top: 80, bottom: 259, left: 22, right: 188 },
   rowH: 6.4,
   numW: 9,
   optW: 7.5,

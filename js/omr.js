@@ -214,7 +214,7 @@ export function quickFind(imageData) {
 export function analyze(canvas) {
   const P = prepare(canvas);
   const pts = findSheet(P.bin, P.w, P.h);
-  if (!pts) return { ok: false, reason: 'No encuentro los cuatro cuadrados negros de las esquinas.' };
+  if (!pts) return { ok: false, reason: 'No encuentro los cuatro cuadrados de las esquinas. Comprueba que se imprimieron los cuatro.' };
   const ref = markCenters(); // TL, TR, BL, BR
   const srcCtx = canvas.getContext('2d', { willReadFrequently: true });
   for (let k = 0; k < 4; k++) {

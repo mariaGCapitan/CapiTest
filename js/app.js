@@ -3,7 +3,7 @@ import {
   $, $$, esc, uid, toast, LETTERS, fmtNota, fmtDate, PENALTIES, penaltyText,
   canShareFiles, shareFile, downloadFile, readFile, loadImage, prepareImage, safeName,
 } from './util.js';
-import { maxQuestions } from './layout.js';
+import { maxQuestions, LAYOUT } from './layout.js';
 import { importExamFile, MAX_OPTS } from './import.js';
 import { buildPrint, examPDF, parseQR } from './pdf.js';
 import { grade, summary, questionStats, versionFor, nopt } from './grading.js';
@@ -254,6 +254,7 @@ function importDialog(exam) {
 function printState(exam, group) {
   const p = exam.printed;
   if (!p) return 'never';
+  if (p.layout !== LAYOUT) return 'layout';
   const qids = exam.questions.map(q => q.id);
   const same = p.nopt === nopt(exam) && p.qids.length === qids.length && qids.every(id => p.qids.includes(id))
     && exam.questions.every(q => p.nopts?.[q.id] === q.options.length);
@@ -304,6 +305,7 @@ function tabQuestions(exam, el) {
       <div class="tools">
         <button class="iconbtn" data-up="${i}" aria-label="Subir" ${i ? '' : 'disabled'}>▲</button>
         <button class="iconbtn" data-down="${i}" aria-label="Bajar" ${i < n - 1 ? '' : 'disabled'}>▼</button>
+        <button class="iconbtn" data-del="${i}" aria-label="Borrar pregunta ${i + 1}">🗑️</button>
       </div>
     </div>`).join('');
   el.innerHTML = html;
@@ -316,6 +318,14 @@ function tabQuestions(exam, el) {
   };
   $$('[data-up]', el).forEach(b => (b.onclick = () => move(+b.dataset.up, -1)));
   $$('[data-down]', el).forEach(b => (b.onclick = () => move(+b.dataset.down, 1)));
+  $$('[data-del]', el).forEach(b => (b.onclick = async () => {
+    const i = +b.dataset.del;
+    const warn = exam.printed ? '\n\nEl examen ya está impreso: las hojas impresas dejarán de valer y habrá que generar el PDF otra vez.' : '';
+    if (!confirm(`¿Borrar la pregunta ${i + 1}?${warn}`)) return;
+    exam.questions.splice(i, 1);
+    await saveExam(exam);
+    tabQuestions(exam, el);
+  }));
 }
 
 function viewQuestion(examId, qid) {
@@ -408,6 +418,7 @@ function tabPrint(exam, el) {
   if (!n) { el.innerHTML = `<p class="empty">Primero importa las preguntas.</p>`; return; }
   if (n > max) { el.innerHTML = `<div class="banner bad">Hay ${n} preguntas y en la hoja caben ${max}.</div>`; return; }
   if (!g || !g.students.length) html += `<div class="banner warn">El grupo no tiene alumnado; solo se imprimirán hojas de reserva.</div>`;
+  if (st === 'layout') html += `<div class="banner warn">La hoja de respuestas tiene un diseño nuevo: los cuadrados de abajo están más arriba para que cualquier impresora los imprima. Genera el PDF otra vez; las hojas impresas antes no valen.</div>`;
   if (st === 'stale') html += `<div class="banner warn">Las preguntas han cambiado desde la última impresión. Al generar el PDF se crean versiones nuevas y las hojas impresas antes dejan de valer.</div>`;
   if (st === 'partial') html += `<div class="banner info">Hay alumnado nuevo en el grupo. Al generar el PDF se le crea su versión; las del resto no cambian.</div>`;
   if (st === 'ok') html += `<div class="banner ok">Versiones creadas el ${fmtDate(exam.printed.at)}. Si vuelves a generar el PDF, cada alumno o alumna conserva su misma versión.</div>`;
@@ -521,7 +532,7 @@ function tabScan(exam, el) {
     </div>
     <div id="result"></div>
     <p class="muted small" id="count">${Object.keys(exam.results).length} de ${total} corregidos.</p>
-    <p class="muted small">Consejos: hoja sobre la mesa y bien iluminada, sin sombras del móvil; que se vean las cuatro esquinas negras.</p>`;
+    <p class="muted small">Consejos: hoja sobre la mesa y bien iluminada, sin sombras del móvil; que se vean los cuatro cuadrados de las esquinas. Si en papel falta alguno, imprime de nuevo la hoja.</p>`;
   $('#startcam').onclick = async () => {
     if (!navigator.mediaDevices?.getUserMedia) return toast('Este navegador no deja usar la cámara. Prueba «Desde una foto».');
     $('#cam').innerHTML = `<video playsinline muted></video><canvas class="ov"></canvas><div class="scan-msg">Abriendo la cámara…</div>`;

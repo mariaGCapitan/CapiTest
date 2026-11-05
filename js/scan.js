@@ -25,7 +25,7 @@ export class Scanner {
     this.video.muted = true;
     await this.video.play();
     this.running = true;
-    this.say('Encuadra la hoja entera, con los cuatro cuadrados negros a la vista.');
+    this.say('Encuadra la hoja entera, con los cuatro cuadrados de las esquinas a la vista.');
     this.loop();
   }
 
@@ -63,7 +63,7 @@ export class Scanner {
     ctx.drawImage(this.video, 0, 0, w, h);
     const pts = quickFind(ctx.getImageData(0, 0, w, h));
     this.drawOverlay(pts, w, h);
-    if (!pts) { this.stable = 0; this.last = null; this.say('Buscando los cuatro cuadrados negros…'); return; }
+    if (!pts) { this.stable = 0; this.last = null; this.say('Buscando los cuatro cuadrados de las esquinas…'); return; }
     const moved = this.last ? Math.max(...pts.map((p, i) => Math.hypot(p[0] - this.last[i][0], p[1] - this.last[i][1]))) : Infinity;
     this.last = pts;
     this.stable = moved < Math.max(w, h) * 0.012 ? this.stable + 1 : 0;

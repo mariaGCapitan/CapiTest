@@ -1,6 +1,6 @@
 // Versiones barajadas y PDF con el examen de cada alumno o alumna y su hoja de respuestas.
 
-import { SHEET, bubbleLayout } from './layout.js';
+import { SHEET, LAYOUT, bubbleLayout } from './layout.js';
 import { uid, shuffle, range, LETTERS, penaltyText } from './util.js';
 import { nopt as examNopt } from './grading.js';
 
@@ -13,7 +13,7 @@ export function buildPrint(exam, group, reserves) {
   const nopt = examNopt(exam);
   const prev = exam.printed;
   const nopts = Object.fromEntries(exam.questions.map(q => [q.id, q.options.length]));
-  const reusable = prev && prev.nopt === nopt && sameSet(prev.qids, qids)
+  const reusable = prev && prev.layout === LAYOUT && prev.nopt === nopt && sameSet(prev.qids, qids)
     && qids.every(id => prev.nopts?.[id] === nopts[id]);
   const batch = reusable ? prev.batch : uid(4);
   const sheets = reusable ? { ...prev.sheets } : {};
@@ -26,7 +26,7 @@ export function buildPrint(exam, group, reserves) {
   };
   for (const s of group?.students || []) make(s.id, s.id);
   for (let i = 1; i <= reserves; i++) make('R' + i, null);
-  return { at: Date.now(), batch, nopt, qids, nopts, sheets, reserves, changed: !!prev && !reusable };
+  return { at: Date.now(), layout: LAYOUT, batch, nopt, qids, nopts, sheets, reserves, changed: !!prev && !reusable };
 }
 
 // Verdadero/Falso no se baraja, y «Ninguna/Todas las anteriores» se quedan en su sitio.
@@ -87,19 +87,24 @@ export function examPDF(exam, group, settings, { duplex }) {
 
 function drawAnswerSheet(doc, exam, settings, v, person) {
   const nopt = exam.printed.nopt;
-  doc.setFillColor(0, 0, 0);
+  // Gris oscuro: menos pesado a la vista y la cámara lo sigue distinguiendo del papel.
+  doc.setFillColor(70, 70, 70);
   for (const [x, y] of SHEET.marks) doc.rect(x, y, SHEET.markSize, SHEET.markSize, 'F');
 
   const L = 24, W = SHEET.qr.x - L - 6;
   const brand = hasBrand(settings);
   let y;
   if (brand) {
-    drawBrand(doc, settings, exam.module, L, SHEET.qr.x - 4, 20, 10);
+    drawLogosCentered(doc, settings, SHEET.w / 2, 10, 11);
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(60);
+    doc.text(pdfText((exam.module || '').toUpperCase()), L, 30, { maxWidth: W });
+    doc.setTextColor(0);
     doc.setFontSize(13);
     const title = doc.splitTextToSize(pdfText(exam.title), W).slice(0, 2);
-    doc.text(title, L, 37);
-    y = 37 + title.length * 5.5 + 2;
+    doc.text(title, L, 36.5);
+    y = 36.5 + title.length * 5.5 + 2;
   } else {
     doc.setTextColor(110);
     doc.setFont('helvetica', 'normal');
@@ -138,7 +143,7 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
   doc.setTextColor(60);
   const inst = 'Rellena por completo el círculo de la respuesta elegida con bolígrafo negro o azul oscuro. '
     + 'Marca una sola respuesta por pregunta; si marcas dos, la pregunta cuenta como en blanco. '
-    + 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados negros. '
+    + 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados de las esquinas. '
     + penaltyText(exam.penalty);
   doc.text(doc.splitTextToSize(pdfText(inst), 166), L, 64);
   doc.setTextColor(0);
@@ -195,6 +200,18 @@ function drawBrand(doc, settings, module, x0, x1, y, h) {
     doc.text(lines, x, y + h / 2 - (lines.length - 1) * 1.65 + 1.1, { lineHeightFactor: 1.15 });
     doc.setTextColor(0);
   }
+}
+
+// Los dos logos juntos, centrados en cx.
+function drawLogosCentered(doc, settings, cx, y, h) {
+  const logos = [['logoL', settings.logoL], ['logoR', settings.logoR]].filter(([, l]) => l);
+  const gap = 6;
+  const widths = logos.map(([, l]) => l.w / l.h * h);
+  let x = cx - (widths.reduce((a, b) => a + b, 0) + gap * (logos.length - 1)) / 2;
+  logos.forEach(([alias, l], i) => {
+    doc.addImage(l.data, l.fmt, x, y, widths[i], h, alias, 'FAST');
+    x += widths[i] + gap;
+  });
 }
 
 function drawQR(doc, text, x, y, size) {
