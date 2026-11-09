@@ -1,0 +1,7 @@
+[Unit]
+Description=Comprobar si hay una versión nueva de CapiTest
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/capitest/despliegue/actualizar.sh

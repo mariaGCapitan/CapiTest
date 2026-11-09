@@ -1,0 +1,6 @@
+[Unit]
+Description=Copia de seguridad de CapiTest
+
+[Service]
+Type=oneshot
+ExecStart=/opt/capitest/despliegue/copia.sh

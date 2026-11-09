@@ -1,0 +1,4 @@
+# En la VM se instalan con apt (python3-flask, gunicorn) para que reciban las actualizaciones de seguridad de Debian.
+# Este archivo es para probar en el ordenador.
+flask>=2.2
+gunicorn>=20.1

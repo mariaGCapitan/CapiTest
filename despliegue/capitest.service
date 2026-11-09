@@ -1,0 +1,25 @@
+[Unit]
+Description=CapiTest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=capitest
+Group=capitest
+UMask=0027
+EnvironmentFile=/etc/capitest/capitest.env
+WorkingDirectory=/opt/capitest/server
+ExecStart=/usr/bin/gunicorn --workers 2 --timeout 150 --bind 0.0.0.0:8443 --certfile /etc/capitest/tls.crt --keyfile /etc/capitest/tls.key app:app
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/capitest
+
+[Install]
+WantedBy=multi-user.target

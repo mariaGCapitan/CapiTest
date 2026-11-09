@@ -13,6 +13,10 @@
   --brand: var(--azul);
   --brand-ink: #ffffff;
   --brand-soft: #eaf4fc;
+  --btn: #cfe5f7;
+  --btn-ink: #125a93;
+  --btn-bad: #f9cfe2;
+  --btn-bad-ink: #b0004f;
   --ok: #2a9473;
   --ok-soft: #e6f6f0;
   --bad: #d1005f;
@@ -35,6 +39,10 @@
     --brand: #5ea8e6;
     --brand-ink: #0d1220;
     --brand-soft: #1d2f45;
+    --btn: #24486d;
+    --btn-ink: #cfe5f7;
+    --btn-bad: #5a2540;
+    --btn-bad-ink: #ffc2db;
     --ok: #4cc79d;
     --ok-soft: #173329;
     --bad: #ff5aa0;
@@ -58,6 +66,37 @@ body {
   padding-bottom: calc(72px + env(safe-area-inset-bottom));
 }
 a { color: var(--brand); }
+
+/* Acceso y estado de la sincronización */
+body.noauth { padding-bottom: 24px; }
+body.noauth .tabs, body.noauth #syncstate { display: none; }
+.login { max-width: 400px; margin: 7vh auto 0; }
+body.entrada .top-in { display: none; }
+.marca-app { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 20px; font-size: 1.9rem; font-weight: 800; letter-spacing: -.02em; }
+.marca-app img { height: 60px; width: 60px; }
+#syncstate { position: relative; flex: none; display: flex; align-items: center; justify-content: center; margin-left: 8px; width: 36px; height: 36px; border-radius: 50%; color: var(--ink); background: var(--brand-soft); font-size: .85rem; font-weight: 700; text-decoration: none; }
+#syncstate::after { content: ""; position: absolute; right: 0; bottom: 0; width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--card); background: var(--ok); }
+#syncstate.busy::after, #syncstate.pending::after { background: var(--naranja); }
+#syncstate.offline::after { background: var(--blank); }
+#syncstate.bad::after { background: var(--bad); }
+.examrow { position: relative; }
+.examrow .card { padding-right: 52px; }
+.examrow .iconbtn { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); }
+.sdn { max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.sdnrow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.sdnrow:last-child { border-bottom: 0; }
+.sdnrow .orig { font-size: .86rem; color: var(--muted); overflow-wrap: anywhere; }
+.sdnrow input { padding: 6px 8px; min-width: 0; }
+.sdnrow input.bad { border-color: var(--bad); }
+.sdnrow .msg { grid-column: 1 / -1; color: var(--warn); }
+.sdnrow .msg:empty { display: none; }
+.acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.pass { position: relative; display: block; }
+.pass input { padding-right: 46px; }
+.pass button { position: absolute; top: 0; right: 0; width: 44px; height: 100%; display: flex; align-items: center; justify-content: center; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.pass button[aria-pressed="true"] { color: var(--brand); }
+.pass button[aria-pressed="true"] .tacha { display: none; }
+.tempclave { font: 600 1.1rem ui-monospace, Menlo, monospace; user-select: all; }
 
 /* Cabecera y navegación */
 .top {
@@ -126,13 +165,13 @@ a.card:active { background: var(--brand-soft); }
 .banner.bad { background: var(--bad-soft); color: var(--bad); }
 
 .btn {
-  appearance: none; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  appearance: none; border: 1px solid transparent; background: var(--btn); color: var(--btn-ink);
   border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600; font-size: .95rem;
   cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-height: 44px;
 }
 .btn.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
-.btn.danger { color: var(--bad); }
+.btn.danger { background: var(--btn-bad); color: var(--btn-bad-ink); }
 .btn.small { min-height: 34px; padding: 6px 10px; font-size: .85rem; }
 .btn.block { display: flex; width: 100%; }
 .btn:disabled { opacity: .5; cursor: default; }
@@ -143,8 +182,8 @@ a.card:active { background: var(--brand-soft); }
 .iconbtn:active { background: var(--brand-soft); }
 
 label.field { display: block; margin-bottom: 14px; }
-label.field > span { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
-input[type=text], input[type=number], input[type=email], select, textarea {
+label.field > span:not(.pass) { display: block; font-size: .85rem; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+input[type=text], input[type=number], input[type=email], input[type=password], select, textarea {
   width: 100%; font: inherit; color: var(--ink); background: var(--card);
   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
 }

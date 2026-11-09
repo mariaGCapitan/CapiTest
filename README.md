@@ -21,6 +21,12 @@ Solo se importan preguntas de opción múltiple (de 2 a 5 respuestas) y de verda
 
 Todo se guarda en el dispositivo (IndexedDB); no hay servidor. Para no perder nada, usa **Ajustes → Exportar copia**. En iPhone conviene añadir la app a la pantalla de inicio.
 
+## Con servidor
+
+CapiTest funciona de dos formas con el mismo código. Publicada como páginas estáticas, guarda los datos solo en el dispositivo. Instalada con el servidor de `server/`, cada profe entra con su cuenta y sus datos se sincronizan entre el ordenador y el móvil, también después de corregir sin conexión.
+
+La instalación está en [despliegue/GUIA.md](despliegue/GUIA.md).
+
 ## Autoría
 
 María Ojeda García · IES Gran Capitán (Córdoba).

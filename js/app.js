@@ -10,6 +10,8 @@ import { grade, summary, questionStats, versionFor, nopt } from './grading.js';
 import { readBubbles, drawReading, MARKED, DOUBT } from './omr.js';
 import { Scanner, analyzeFile } from './scan.js';
 import { examExcel } from './excel.js';
+import { checkList, parseSeneca, toPseudonym } from './seudonimo.js';
+import { net, api, ApiError, detect, login, logout, changePassword, acceptInvite, queue, run as runSync, start as startSync } from './sync.js';
 
 const state = { groups: [], exams: [], settings: {}, scanner: null, pdf: null };
 
@@ -23,16 +25,109 @@ async function load() {
 const groupById = id => state.groups.find(g => g.id === id);
 const examById = id => state.exams.find(e => e.id === id);
 
+// En el servidor las notas van aparte del examen: dos móviles pueden corregir a la vez sin pisarse.
+const examDoc = ({ results, ...rest }) => rest;
+
 async function saveExam(e) {
   e.updated = Date.now();
   await db.put('exams', e);
   const i = state.exams.findIndex(x => x.id === e.id);
   if (i < 0) state.exams.push(e); else state.exams[i] = e;
+  await queue('exam', e.id, examDoc(e), e.updated);
 }
 async function saveGroup(g) {
+  g.updated = Date.now();
   await db.put('groups', g);
   const i = state.groups.findIndex(x => x.id === g.id);
   if (i < 0) state.groups.push(g); else state.groups[i] = g;
+  await queue('group', g.id, g, g.updated);
+}
+async function saveResult(exam, sid) {
+  const r = exam.results[sid];
+  const now = Date.now();
+  if (r) r.updated = now;
+  await db.put('exams', exam);
+  await queue('result', `${exam.id}/${sid}`, r || null, now, !r);
+}
+async function saveSettings(patch) {
+  state.settings = { ...state.settings, ...patch, updated: Date.now() };
+  await db.setMeta('settings', state.settings);
+  await queue('settings', 'ajustes', state.settings, state.settings.updated);
+}
+
+// Los objetos se cambian en su sitio: una pantalla abierta sigue apuntando al mismo examen.
+function replaceInPlace(target, doc) {
+  for (const k of Object.keys(target)) if (k !== 'results') delete target[k];
+  Object.assign(target, doc);
+}
+
+async function applyRemote(items) {
+  const rank = { group: 0, settings: 1, exam: 2, result: 3 };
+  const touched = new Set();
+  for (const c of [...items].sort((a, b) => rank[a.kind] - rank[b.kind])) {
+    // Un documento defectuoso no debe impedir que entren los demás.
+    try {
+      if (c.kind === 'group') {
+        if (c.deleted) {
+          state.groups = state.groups.filter(g => g.id !== c.id);
+          await db.del('groups', c.id);
+        } else {
+          const doc = { students: [], ...c.doc, id: c.id };
+          const g = groupById(c.id);
+          if (g) replaceInPlace(g, doc); else state.groups.push(doc);
+          await db.put('groups', groupById(c.id));
+        }
+      } else if (c.kind === 'settings') {
+        state.settings = c.doc;
+        await db.setMeta('settings', c.doc);
+      } else if (c.kind === 'exam') {
+        if (c.deleted) {
+          state.exams = state.exams.filter(e => e.id !== c.id);
+          touched.delete(c.id);
+          await db.del('exams', c.id);
+        } else {
+          const doc = { questions: [], ...c.doc, id: c.id };
+          const e = examById(c.id);
+          if (e) replaceInPlace(e, doc); else state.exams.push({ ...doc, results: {} });
+          touched.add(c.id);
+        }
+      } else {
+        const cut = c.id.indexOf('/');
+        const exam = examById(c.id.slice(0, cut)), sid = c.id.slice(cut + 1);
+        if (!exam) continue;
+        if (c.deleted) delete exam.results[sid]; else exam.results[sid] = c.doc;
+        touched.add(exam.id);
+      }
+    } catch (e) {
+      console.error('No se ha podido aplicar', c.kind, c.id, e);
+    }
+  }
+  for (const id of touched) await db.put('exams', examById(id));
+  // Nunca se redibuja debajo de alguien que está escribiendo o corrigiendo.
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+  if (!state.scanner && !$('.modal') && !$('#qf') && !$('#result')?.childElementCount && !typing) route();
+}
+
+function showSync() {
+  const el = $('#syncstate');
+  if (!el) return;
+  el.hidden = !net.server;
+  // Los usuarios de Séneca empiezan por la inicial del nombre y la del primer apellido.
+  el.textContent = (net.user?.usuario || '').slice(0, 2).toUpperCase();
+  const bad = ['auth', 'error'].includes(net.state);
+  el.className = bad ? 'bad' : net.state === 'offline' ? 'offline' : net.state === 'syncing' ? 'busy' : net.pending ? 'pending' : '';
+  el.title = syncText();
+  el.setAttribute('aria-label', syncText());
+  const t = $('#synctext');
+  if (t) t.textContent = syncText();
+}
+function syncText() {
+  const n = net.pending ? ` ${net.pending} cambio(s) sin subir.` : '';
+  if (net.state === 'offline') return `Sin conexión con el servidor.${n}`;
+  if (net.state === 'syncing') return 'Sincronizando…';
+  if (net.state === 'auth') return `La sesión ha caducado.${n}`;
+  if (net.state === 'error') return `El servidor ha dado un error.${n}`;
+  return n ? n.trim() : 'Todo guardado en el servidor.';
 }
 
 // Logos de los exámenes: sin elegir (null) salen los del centro; false = sin logo.
@@ -58,7 +153,7 @@ async function printSettings() {
 const main = () => $('#main');
 
 function setHeader(title, back, actions = '') {
-  $('#title').innerHTML = (back ? `<a class="back" href="${back}" aria-label="Volver">‹</a>` : '<img class="mini" src="img/logo_gc.png" alt="">') + `<span>${esc(title)}</span>`;
+  $('#title').innerHTML = (back ? `<a class="back" href="${back}" aria-label="Volver">‹</a>` : '<img class="mini" src="icons/logo-capitest.png" alt="">') + `<span>${esc(title)}</span>`;
   $('#top-actions').innerHTML = actions;
 }
 function setNav(name) {
@@ -85,6 +180,8 @@ async function route() {
   closeModal();
   state.pdf = null;
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+  if (parts[0] === 'invitacion' && parts[1] && net.server) return viewInvite(parts[1]);
+  if (state.gate) return state.gate();
   main().innerHTML = '';
   window.scrollTo(0, 0);
   switch (parts[0]) {
@@ -95,6 +192,8 @@ async function route() {
       if (parts[2] === 'pregunta') return viewQuestion(parts[1], parts[3]);
       return viewExam(parts[1], parts[2] || 'preguntas');
     case 'ajustes': return viewSettings();
+    case 'cuenta': return viewAccount();
+    case 'profesorado': return viewUsers();
     default: location.hash = '#/';
   }
 }
@@ -107,7 +206,7 @@ function viewExams() {
   const list = [...state.exams].sort((a, b) => (b.created || 0) - (a.created || 0));
   const mods = [...new Set(list.map(e => e.module || 'Sin módulo'))];
   let html = `<div class="row"><button class="btn primary grow" id="new">+ Nuevo examen</button>
-    <label class="btn">Importar<input type="file" id="impx" accept=".json,application/json" hidden></label></div>`;
+    ${net.server ? '' : '<label class="btn">Importar<input type="file" id="impx" accept=".json,application/json" hidden></label>'}</div>`;
   if (!list.length) {
     html += `<p class="empty">Todavía no hay exámenes.<br>Crea uno y sube el archivo de Moodle (XML o GIFT).</p>`;
   }
@@ -119,19 +218,30 @@ function viewExams() {
       const g = groupById(e.groupId);
       const total = g?.students.length || 0;
       const done = Object.keys(e.results || {}).length;
-      html += `<a class="card" style="border-left:4px solid ${tono}" href="#/examen/${e.id}">
+      html += `<div class="examrow"><a class="card" style="border-left:4px solid ${tono}" href="#/examen/${e.id}">
         <div class="card-title">${esc(e.title)}</div>
         <div class="muted">${esc(g?.name || 'Sin grupo')} · ${e.questions.length} preguntas · ${done}/${total} corregidos</div>
-      </a>`;
+      </a><button class="iconbtn" data-delexam="${e.id}" aria-label="Borrar ${esc(e.title)}">🗑️</button></div>`;
     }
   });
   main().innerHTML = html;
   $('#new').onclick = () => examForm(null);
-  $('#impx').onchange = async e => {
+  $$('[data-delexam]').forEach(b => (b.onclick = async () => {
+    if (await deleteExam(examById(b.dataset.delexam))) viewExams();
+  }));
+  if (!net.server) $('#impx').onchange = async e => {
     const file = e.target.files[0];
     e.target.value = '';
     if (file) await importData(file);
   };
+}
+
+async function deleteExam(exam) {
+  if (!confirm(`¿Borrar el examen «${exam.title}» y todas sus notas? No se puede deshacer.`)) return false;
+  await db.del('exams', exam.id);
+  state.exams = state.exams.filter(x => x.id !== exam.id);
+  await queue('exam', exam.id, null, Date.now(), true);
+  return true;
 }
 
 function examForm(exam) {
@@ -147,13 +257,13 @@ function examForm(exam) {
   const known = PENALTIES.some(p => Math.abs(p.v - e.penalty) < 1e-6);
   const s = modal(`<h3>${exam ? 'Datos del examen' : 'Nuevo examen'}</h3>
     <form id="ef">
-      <label class="field"><span>Módulo</span>
+      ${modules.length ? `<label class="field"><span>Módulo</span>
         <select name="modsel">
           ${modules.map(m => `<option ${m === e.module ? 'selected' : ''}>${esc(m)}</option>`).join('')}
-          <option value="__new" ${modules.length ? '' : 'selected'}>Otro módulo…</option>
+          <option value="__new">Nuevo módulo…</option>
         </select>
-      </label>
-      <label class="field" id="modnew" ${modules.length ? 'hidden' : ''}><span>Nombre del módulo</span>
+      </label>` : ''}
+      <label class="field" id="modnew" ${modules.length ? 'hidden' : ''}><span>${modules.length ? 'Nombre del módulo nuevo' : 'Módulo'}</span>
         <input type="text" name="modnew" placeholder="Por ejemplo: Python ASIR">
       </label>
       <label class="field"><span>Título del examen</span>
@@ -183,19 +293,17 @@ function examForm(exam) {
       </div>
     </form>`);
   const f = s.querySelector('#ef');
-  f.modsel.onchange = () => { s.querySelector('#modnew').hidden = f.modsel.value !== '__new'; };
+  if (f.modsel) f.modsel.onchange = () => { s.querySelector('#modnew').hidden = f.modsel.value !== '__new'; };
   f.pen.onchange = () => { s.querySelector('#pencustom').hidden = f.pen.value !== 'custom'; };
   s.querySelector('[data-close]').onclick = closeModal;
   if (exam) s.querySelector('#delexam').onclick = async () => {
-    if (!confirm(`¿Borrar el examen «${exam.title}» y todas sus notas? No se puede deshacer.`)) return;
-    await db.del('exams', exam.id);
-    state.exams = state.exams.filter(x => x.id !== exam.id);
+    if (!(await deleteExam(exam))) return;
     closeModal();
     location.hash = '#/';
   };
   f.onsubmit = async ev => {
     ev.preventDefault();
-    const module = f.modsel.value === '__new' ? f.modnew.value.trim() : f.modsel.value;
+    const module = !f.modsel || f.modsel.value === '__new' ? f.modnew.value.trim() : f.modsel.value;
     if (!module) return toast('Escribe el módulo.');
     const penalty = f.pen.value === 'custom' ? parseFloat(String(f.penc.value).replace(',', '.')) : parseFloat(f.pen.value);
     if (!(penalty >= 0)) return toast('La penalización no es válida.');
@@ -267,16 +375,16 @@ function viewExam(id, tab) {
   const exam = examById(id);
   if (!exam) { location.hash = '#/'; return; }
   setNav('examenes');
-  setHeader(exam.title, '#/', `<button class="btn small" id="xpt">Exportar</button><button class="btn small" id="edit">Datos</button>`);
-  $('#edit').onclick = () => examForm(exam);
-  $('#xpt').onclick = () => {
+  setHeader(exam.title, '#/', net.server ? '' : '<button class="btn small" id="xpt">Exportar</button>');
+  if (!net.server) $('#xpt').onclick = () => {
     if (!exam.printed && !confirm('Aún no has generado el PDF de este examen. Para corregirlo en otro dispositivo, exporta después de generar el PDF. ¿Exportar igualmente?')) return;
     if (exam.printed && printState(exam, groupById(exam.groupId)) === 'stale' && !confirm('Las preguntas han cambiado desde el último PDF. Genera el PDF otra vez antes de exportar. ¿Exportar igualmente?')) return;
     const g = groupById(exam.groupId);
     exportData({ groups: g ? [g] : [], exams: [exam] }, `CapiTest_examen_${safeName(exam.title)}.json`);
   };
   const tabs = [['preguntas', 'Preguntas'], ['imprimir', 'Imprimir'], ['corregir', 'Corregir'], ['notas', 'Notas']];
-  main().innerHTML = `<div class="seg">${tabs.map(([k, t]) => `<a href="#/examen/${id}/${k}" class="${k === tab ? 'on' : ''}">${t}</a>`).join('')}</div><div id="tab"></div>`;
+  main().innerHTML = `<div class="seg">${tabs.map(([k, t]) => `<a href="#/examen/${id}/${k}" class="${k === tab ? 'on' : ''}">${t}</a>`).join('')}<a href="#" id="edit">Datos</a></div><div id="tab"></div>`;
+  $('#edit').onclick = e => { e.preventDefault(); examForm(exam); };
   const el = $('#tab');
   ({ preguntas: tabQuestions, imprimir: tabPrint, corregir: tabScan, notas: tabGrades }[tab] || tabQuestions)(exam, el);
 }
@@ -286,6 +394,7 @@ function tabQuestions(exam, el) {
   const max = maxQuestions(nopt(exam));
   const g = groupById(exam.groupId);
   let html = `<p class="muted">${esc(exam.module)} · ${esc(g?.name || 'Sin grupo')} · ${penaltyText(exam.penalty)}</p>`;
+  if (!g) html += `<div class="banner warn">Este examen no tiene grupo. Elígelo en la pestaña Datos.</div>`;
   if (n > max) html += `<div class="banner bad">Hay ${n} preguntas y en la hoja caben ${max}. Quita alguna para poder imprimir.</div>`;
   if (exam.printed && printState(exam, g) === 'stale') html += `<div class="banner warn">Has cambiado preguntas después de imprimir. Las hojas impresas ya no valen: vuelve a generar el PDF.</div>`;
   html += `<div class="row" style="margin-bottom:12px">
@@ -398,8 +507,8 @@ function viewQuestion(examId, qid) {
       collect();
       if (!q.text && !q.code && !q.image) return toast('La pregunta necesita enunciado, código o imagen.');
       if (q.options.some(o => !o.text)) return toast('Rellena todas las respuestas o quita las que sobren.');
-      if (isNew) exam.questions.push(q);
-      else exam.questions[exam.questions.indexOf(orig)] = q;
+      const at = exam.questions.findIndex(x => x.id === q.id);
+      if (at < 0) exam.questions.push(q); else exam.questions[at] = q;
       await saveExam(exam);
       location.hash = `#/examen/${examId}/preguntas`;
     };
@@ -463,7 +572,7 @@ function showPdfOut() {
     <div class="row" style="margin-top:10px">
       ${canShareFiles() ? '<button class="btn grow" id="share">Compartir</button>' : ''}
       <button class="btn grow" id="dl">Descargar</button>
-      <button class="btn grow" id="open">Abrir</button>
+      <button class="btn grow" id="open">Vista previa</button>
     </div></div>`;
   if ($('#share')) $('#share').onclick = () => shareFile(state.pdf.blob, state.pdf.filename, state.pdf.filename);
   $('#dl').onclick = () => downloadFile(state.pdf.blob, state.pdf.filename);
@@ -479,7 +588,7 @@ function fillsToPrinted(v, fills) {
     const f = fills[i] || [];
     const marked = [];
     f.forEach((x, j) => { if (x >= MARKED) marked.push(j); });
-    const doubt = f.some(x => x >= DOUBT && x < MARKED);
+    const doubt = marked.length > 1 || f.some(x => x >= DOUBT && x < MARKED);
     let p = null;
     if (marked.length === 1 && marked[0] < n) p = marked[0];
     else if (marked.length) p = 'M';
@@ -500,11 +609,11 @@ function answerGrid(container, exam, v, printed, onChange) {
       const q = exam.questions.find(qq => qq.id === x.qid);
       if (!q) return '';
       const orig = x.p === null || x.p === 'M' ? x.p : v.perm[x.qid][x.p];
-      const cls = q.annulled ? 'off' : orig === null ? 'blank' : orig === 'M' ? 'bad' : orig === q.correct ? 'ok' : 'bad';
+      const cls = q.annulled ? 'off' : orig === null || orig === 'M' ? 'blank' : orig === q.correct ? 'ok' : 'bad';
       const txt = x.p === null ? '–' : x.p === 'M' ? 'Varias' : LETTERS[x.p];
-      return `<button type="button" class="chip ${cls} ${x.doubt ? 'doubt' : ''}" data-i="${i}"><b>${i + 1}</b>${txt}</button>`;
+      return `<button type="button" class="chip ${cls} ${x.doubt || x.p === 'M' ? 'doubt' : ''}" data-i="${i}"><b>${i + 1}</b>${txt}</button>`;
     }).join('')}</div>
-    <div class="legend"><span><i style="background:var(--ok)"></i>Bien</span><span><i style="background:var(--bad)"></i>Mal o varias</span>
+    <div class="legend"><span><i style="background:var(--ok)"></i>Bien</span><span><i style="background:var(--bad)"></i>Mal</span>
       <span><i style="background:var(--blank)"></i>En blanco</span><span><i style="background:var(--warn)"></i>Dudosa: compruébala</span></div>
     <p class="muted small">Toca una pregunta para cambiar la respuesta leída.</p>`;
     $$('.chip', container).forEach(b => (b.onclick = () => {
@@ -614,7 +723,7 @@ function resultCard(exam, v, sheetId, printed, photo) {
     ${reserve ? `<label class="field"><span>¿De quién es?</span><select id="who"><option value="">Elige…</option>
       ${students.map(s => `<option value="${s.id}">${exam.results[s.id] ? '✓ ' : ''}${esc(s.name)}</option>`).join('')}</select></label>` : ''}
     ${!reserve && exam.results[v.studentId] ? '<div class="banner warn">Esta hoja ya estaba corregida. Si guardas, se sustituye.</div>' : ''}
-    ${doubts ? `<div class="banner warn">Hay ${doubts} pregunta(s) dudosa(s), con el círculo a medio rellenar o tachado. Compruébalas con la hoja.</div>` : ''}
+    ${doubts ? `<div class="banner warn">Hay ${doubts} pregunta(s) dudosa(s): con varias marcas, con el círculo a medio rellenar o tachado. Compruébalas con la hoja.</div>` : ''}
     <div id="grid"></div>
     <details><summary class="muted small">Ver la foto leída</summary><img class="snap" src="${photo}" alt="Foto de la hoja con las marcas leídas"></details>
     <div class="row"><button class="btn grow" id="discard">Descartar</button><button class="btn primary grow" id="save">Guardar${state.scanner ? ' y seguir' : ''}</button></div>
@@ -636,7 +745,7 @@ function resultCard(exam, v, sheetId, printed, photo) {
     if (reserve && exam.results[sid] && !confirm('Esa persona ya tiene nota. ¿Sustituirla?')) return;
     const name = students.find(s => s.id === sid)?.name || '';
     exam.results[sid] = { sheetId, answers: printedToAnswers(v, printed), at: Date.now(), name };
-    await saveExam(exam);
+    await saveResult(exam, sid);
     toast(`Guardado: ${name}`);
     const c = $('#count');
     if (c) c.textContent = `${Object.keys(exam.results).length} de ${students.length} corregidos.`;
@@ -715,13 +824,13 @@ function studentDetail(exam, sid, name, done) {
   if (s.querySelector('#rm')) s.querySelector('#rm').onclick = async () => {
     if (!confirm('¿Borrar la nota de esta persona?')) return;
     delete exam.results[sid];
-    await saveExam(exam);
+    await saveResult(exam, sid);
     closeModal();
     done();
   };
   s.querySelector('#ok').onclick = async () => {
     exam.results[sid] = { sheetId: r?.sheetId || v.sheetId || sid, answers: printedToAnswers(v, printed), at: Date.now(), name, manual: true };
-    await saveExam(exam);
+    await saveResult(exam, sid);
     closeModal();
     done();
   };
@@ -734,11 +843,11 @@ function viewGroups() {
   setNav('grupos');
   const list = [...state.groups].sort((a, b) => a.name.localeCompare(b.name, 'es'));
   main().innerHTML = `<button class="btn primary block" id="ng">+ Nuevo grupo</button>
-    ${list.length ? '<div style="height:12px"></div>' : '<p class="empty">Crea un grupo por cada clase y pega o importa su lista de alumnado.</p>'}
+    ${list.length ? '<div style="height:12px"></div>' : `<p class="empty">Crea un grupo por cada clase e importa su lista de alumnado${net.server ? ' de Séneca' : ''}.</p>`}
     ${list.map(g => `<a class="card" href="#/grupo/${g.id}"><div class="card-title">${esc(g.name)}</div><div class="muted">${g.students.length} alumnos/as</div></a>`).join('')}`;
   $('#ng').onclick = () => {
     const s = modal(`<h3>Nuevo grupo</h3><form id="gf">
-      <label class="field"><span>Nombre</span><input type="text" name="name" placeholder="Por ejemplo: 1.º ASIR A" required></label>
+      <label class="field"><span>Nombre</span><input type="text" name="name" placeholder="Por ejemplo: 1.º ASIR A - 26/27" required></label>
       <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Crear</button></div></form>`);
     s.querySelector('[data-close]').onclick = closeModal;
     s.querySelector('input').focus();
@@ -749,6 +858,7 @@ function viewGroups() {
       await saveGroup(g);
       closeModal();
       location.hash = `#/grupo/${g.id}`;
+      if (net.server) setTimeout(() => senecaDialog(g, true), 50);
     };
   };
 }
@@ -761,20 +871,20 @@ function viewGroup(id) {
   main().innerHTML = `
     <label class="field"><span>Nombre del grupo</span><input type="text" id="gname" value="${esc(g.name)}"></label>
     <div class="row" style="margin-bottom:12px">
-      <button class="btn grow" id="paste">Pegar lista</button>
-      <button class="btn grow" id="xls">Importar Excel o CSV</button>
+      ${net.server ? '<button class="btn grow" id="seneca">Importar de Séneca</button>' : `<button class="btn grow" id="paste">Pegar lista</button>
+      <button class="btn grow" id="xls">Importar Excel o CSV</button>`}
     </div>
     <div class="card">
       <div class="row"><b class="grow">${g.students.length} alumnos/as</b>${g.students.length > 1 ? '<button class="btn small" id="sort">Ordenar A-Z</button>' : ''}</div>
       <ul class="students">${g.students.map(s => `<li><span>${esc(s.name)}</span><button class="iconbtn" data-rn="${s.id}" aria-label="Renombrar">✎</button><button class="iconbtn" data-del="${s.id}" aria-label="Quitar">✕</button></li>`).join('')}</ul>
-      <form id="addf" class="row" style="margin-top:10px"><input type="text" name="n" class="grow" placeholder="Añadir alumno/a"><button class="btn">Añadir</button></form>
+      <form id="addf" class="row" style="margin-top:10px"><input type="text" name="n" class="grow" placeholder="${net.server ? 'Apellidos, Nombre' : 'Añadir alumno/a'}"><button class="btn">Añadir</button></form>
     </div>
-    <div class="row"><button class="btn grow" id="xptg">Exportar grupo</button><button class="btn danger grow" id="delg">Borrar grupo</button></div>`;
-  $('#xptg').onclick = () => exportData({ groups: [g] }, `CapiTest_grupo_${safeName(g.name)}.json`);
+    <div class="row">${net.server ? '' : '<button class="btn grow" id="xptg">Exportar grupo</button>'}<button class="btn danger grow" id="delg">Borrar grupo</button></div>`;
+  if (!net.server) $('#xptg').onclick = () => exportData({ groups: [g] }, `CapiTest_grupo_${safeName(g.name)}.json`);
   $('#gname').onchange = async e => { g.name = e.target.value.trim() || g.name; await saveGroup(g); setHeader(g.name, '#/grupos'); };
   $('#addf').onsubmit = async e => {
     e.preventDefault();
-    const n = e.target.n.value.trim();
+    const n = personName(e.target.n.value.trim(), g);
     if (!n) return;
     g.students.push({ id: uid(6), name: n });
     await saveGroup(g);
@@ -791,25 +901,101 @@ function viewGroup(id) {
   }));
   $$('[data-rn]').forEach(b => (b.onclick = async () => {
     const s = g.students.find(x => x.id === b.dataset.rn);
-    const n = prompt('Nombre', s.name);
-    if (!n || !n.trim()) return;
-    s.name = n.trim();
+    const typed = prompt('Nombre', s.name);
+    if (!typed || !typed.trim()) return;
+    const n = personName(typed.trim(), g, s);
+    if (!n) return;
+    s.name = n;
     await saveGroup(g);
     viewGroup(id);
   }));
-  $('#paste').onclick = () => pasteDialog(g);
-  $('#xls').onclick = () => sheetDialog(g);
+  if (net.server) $('#seneca').onclick = () => senecaDialog(g);
+  else {
+    $('#paste').onclick = () => pasteDialog(g);
+    $('#xls').onclick = () => sheetDialog(g);
+  }
   $('#delg').onclick = async () => {
     const used = state.exams.filter(e => e.groupId === g.id);
     if (used.length) return alert(`No se puede borrar: lo usan ${used.length} examen(es). Bórralos o cámbiales el grupo antes.`);
     if (!confirm(`¿Borrar el grupo «${g.name}»?`)) return;
     await db.del('groups', g.id);
     state.groups = state.groups.filter(x => x.id !== g.id);
+    await queue('group', g.id, null, Date.now(), true);
     location.hash = '#/grupos';
   };
 }
 
-async function addNames(g, names) {
+// Con servidor, cada nombre se guarda como seudónimo. Sin servidor, tal como se escribe.
+function personName(typed, g, self = null) {
+  if (!net.server) return typed;
+  const { value, error } = toPseudonym(typed);
+  if (error) { toast(error); return null; }
+  if (g.students.some(s => s !== self && s.name === value)) { toast(`${value} ya está en el grupo.`); return null; }
+  return value;
+}
+
+// Muestra el resultado antes de guardar. Devuelve los seudónimos en orden (null = quitado) o null si se cancela.
+function reviewNames(names, existing = []) {
+  return new Promise(done => {
+    const rows = names.map((name, i) => ({ i, name }));
+    const s = modal(`<h3>Revisa los seudónimos</h3>
+      <p class="muted small">La conversión se hace en este dispositivo. Al servidor solo llega la columna de la derecha.</p>
+      <div id="sdn"></div>
+      <div class="row end" style="margin-top:12px"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="ok">Guardar</button></div>`);
+    const typed = new Map();
+    const current = r => (typed.has(r.i) ? typed.get(r.i) : r.name);
+    const check = () => checkList(rows.map(current), existing);
+    const refresh = () => {
+      const res = check();
+      rows.forEach((r, k) => {
+        const el = s.querySelector(`[data-row="${r.i}"]`);
+        const v = res[k];
+        el.querySelector('input').classList.toggle('bad', !!v.error);
+        el.querySelector('.msg').textContent = v.error || (v.existing ? 'Ya está en el grupo: no se añade.' : '');
+        if (v.value && !typed.has(r.i)) el.querySelector('input').value = v.value;
+      });
+      const bad = res.filter(v => v.error).length;
+      const b = s.querySelector('#ok');
+      b.disabled = bad > 0 || !rows.length;
+      b.textContent = bad ? `Faltan ${bad} por revisar` : 'Guardar';
+    };
+    const draw = () => {
+      s.querySelector('#sdn').innerHTML = `<div class="sdn">${rows.map(r => `<div class="sdnrow" data-row="${r.i}">
+        <span class="orig">${esc(r.name)}</span>
+        <input type="text" value="${esc(current(r))}" aria-label="Seudónimo de ${esc(r.name)}" autocapitalize="characters" spellcheck="false">
+        <button type="button" class="iconbtn" data-x="${r.i}" aria-label="Quitar">✕</button>
+        <small class="msg"></small>
+      </div>`).join('')}</div>`;
+      $$('.sdnrow input', s).forEach(inp => (inp.oninput = () => {
+        typed.set(+inp.closest('.sdnrow').dataset.row, inp.value);
+        refresh();
+      }));
+      $$('[data-x]', s).forEach(b => (b.onclick = () => {
+        rows.splice(rows.findIndex(r => r.i === +b.dataset.x), 1);
+        draw();
+      }));
+      refresh();
+    };
+    draw();
+    s.querySelector('[data-close]').onclick = () => { closeModal(); done(null); };
+    s.querySelector('#ok').onclick = () => {
+      const res = check();
+      const out = names.map(() => null);
+      rows.forEach((r, k) => { if (!res[k].existing) out[r.i] = res[k].value; });
+      closeModal();
+      done(out);
+    };
+  });
+}
+
+async function addNames(g, input) {
+  let names = input;
+  if (net.server) {
+    const clean = input.map(n => n.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const res = await reviewNames(clean, g.students.map(s => s.name));
+    if (!res) return;
+    names = res.filter(Boolean);
+  }
   const have = new Set(g.students.map(s => s.name.toLowerCase()));
   let added = 0;
   for (const n of names) {
@@ -832,6 +1018,25 @@ function pasteDialog(g) {
     <div class="row end" style="margin-top:12px"><button class="btn" data-close>Cancelar</button><button class="btn primary" id="ok">Añadir</button></div>`);
   s.querySelector('[data-close]').onclick = closeModal;
   s.querySelector('#ok').onclick = () => addNames(g, s.querySelector('#names').value.split('\n').map(l => l.split('\t')[0]));
+}
+
+function senecaDialog(g, isNew = false) {
+  const s = modal(`<h3>${isNew ? `Alumnado de ${esc(g.name)}` : 'Importar de Séneca'}</h3>
+    <p class="muted small">Sube la hoja «Mis alumnos y alumnas» descargada de Séneca en formato <b>Hoja Microsoft Excel</b>. Se suele llamar RegMisAlu.xls. Los nombres se convierten en seudónimos en este dispositivo y el correo no se guarda.</p>
+    <input type="file" id="sf" accept=".xls,.xlsx">
+    <div class="row end" style="margin-top:12px"><button class="btn" data-close>${isNew ? 'Cancelar: lo añadiré a mano' : 'Cancelar'}</button></div>`);
+  s.querySelector('[data-close]').onclick = closeModal;
+  s.querySelector('#sf').onchange = async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    let names;
+    try {
+      const wb = window.XLSX.read(await readFile(file, 'arrayBuffer'));
+      names = parseSeneca(window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }));
+    } catch { return toast('No puedo leer ese archivo.'); }
+    if (!names) { e.target.value = ''; return toast('Esta hoja no es la de Séneca: no encuentro la columna «Alumno».'); }
+    addNames(g, names);
+  };
 }
 
 function sheetDialog(g) {
@@ -912,46 +1117,44 @@ function viewSettings() {
     </div>
     <h2 class="section">Tus datos</h2>
     <div class="card">
-      <p style="margin-top:0">Grupos, exámenes y notas se guardan <b>solo en este dispositivo</b>; no se envían a ningún servidor.</p>
-      ${standalone ? '' : `<div class="banner warn">En iPhone, añade CapiTest a la pantalla de inicio (Compartir → «Añadir a pantalla de inicio») y ábrela desde ahí. Si solo la usas desde Safari, el sistema puede borrar los datos tras unas semanas sin abrirla.</div>`}
-      <div class="row">
+      <p style="margin-top:0">${net.server ? 'Grupos, exámenes y notas se guardan en el <b>servidor del centro</b> y en este dispositivo, para poder corregir sin conexión.'
+        : 'Grupos, exámenes y notas se guardan <b>solo en este dispositivo</b>; no se envían a ningún servidor.'}</p>
+      ${standalone || net.server ? '' : `<div class="banner warn">En iPhone, añade CapiTest a la pantalla de inicio (Compartir → «Añadir a pantalla de inicio») y ábrela desde ahí. Si solo la usas desde Safari, el sistema puede borrar los datos tras unas semanas sin abrirla.</div>`}
+      ${net.server ? '' : `<div class="row">
         <button class="btn grow" id="exp">Exportar copia</button>
         <label class="btn grow">Importar copia<input type="file" id="imp" accept=".json,application/json" hidden></label>
-      </div>
-      <p class="muted small">La copia es un archivo con todo. Guárdalo en tu nube o pásaselo a otro dispositivo para continuar allí.</p>
+      </div>`}
+      <p class="muted small">${net.server ? 'Tus datos pasan solos de un dispositivo a otro.'
+        : '«Exportar copia» crea un archivo con todos tus datos. Para seguir en otro dispositivo, envíatelo y ábrelo allí con «Importar copia».'}</p>
     </div>
-    <button class="btn danger block" id="wipe">Borrar todos los datos de este dispositivo</button>
-    <div class="marca"><img src="img/logo_junta.png" alt="Junta de Andalucía"><span>CapiTest<small>María Ojeda García</small></span><img src="img/logo_gc.png" alt="IES Gran Capitán"></div>`;
+    ${net.server ? '' : '<button class="btn danger block" id="wipe">Borrar todos los datos de este dispositivo</button>'}
+    <div class="marca"><img src="icons/logo-capitest.png" alt=""><span>CapiTest<small>María Ojeda García</small></span></div>`;
   const save = async () => {
-    state.settings = { ...state.settings, profesor: $('#prof').value.trim(), centro: $('#centro').value.trim() };
-    await db.setMeta('settings', state.settings);
+    await saveSettings({ profesor: $('#prof').value.trim(), centro: $('#centro').value.trim() });
     toast('Guardado.');
   };
   $('#prof').onchange = save;
   $('#centro').onchange = save;
   $$('[data-logo]').forEach(inp => (inp.onchange = async () => {
     if (!inp.files[0]) return;
-    state.settings = { ...state.settings, [inp.dataset.logo]: await prepareImage(inp.files[0], 600) };
-    await db.setMeta('settings', state.settings);
+    await saveSettings({ [inp.dataset.logo]: await prepareImage(inp.files[0], 600) });
     viewSettings();
   }));
   $$('[data-rmlogo]').forEach(b => (b.onclick = async () => {
-    state.settings = { ...state.settings, [b.dataset.rmlogo]: false };
-    await db.setMeta('settings', state.settings);
+    await saveSettings({ [b.dataset.rmlogo]: false });
     viewSettings();
   }));
   $$('[data-deflogo]').forEach(b => (b.onclick = async () => {
-    state.settings = { ...state.settings, [b.dataset.deflogo]: null };
-    await db.setMeta('settings', state.settings);
+    await saveSettings({ [b.dataset.deflogo]: null });
     viewSettings();
   }));
-  $('#exp').onclick = () => exportData({ settings: state.settings, groups: state.groups, exams: state.exams }, `CapiTest_copia_${new Date().toISOString().slice(0, 10)}.json`);
-  $('#imp').onchange = async e => {
+  if (!net.server) $('#exp').onclick = () => exportData({ settings: state.settings, groups: state.groups, exams: state.exams }, `CapiTest_copia_${new Date().toISOString().slice(0, 10)}.json`);
+  if (!net.server) $('#imp').onchange = async e => {
     const file = e.target.files[0];
     e.target.value = '';
     if (file) await importData(file);
   };
-  $('#wipe').onclick = async () => {
+  if ($('#wipe')) $('#wipe').onclick = async () => {
     if (!confirm('¿Borrar TODOS los grupos, exámenes y notas de este dispositivo? No se puede deshacer.')) return;
     if (prompt('Escribe BORRAR para confirmar') !== 'BORRAR') return;
     await db.clearAll();
@@ -981,11 +1184,16 @@ async function importData(file) {
   }).join('');
   const warn = lost ? `\n\nOjo, perderías notas:${lost}` : '';
   if (!confirm(`La copia trae ${what}. Se añade a lo que ya hay; lo que coincida se sustituye.${warn}\n\n¿Seguir?`)) return;
-  for (const g of groups) await db.put('groups', g);
-  for (const x of exams) await db.put('exams', x);
+  for (const g of groups) await saveGroup(g);
+  for (const x of exams) {
+    const before = Object.keys(examById(x.id)?.results || {});
+    x.results = x.results || {};
+    await saveExam(x);
+    for (const sid of new Set([...before, ...Object.keys(x.results)])) await saveResult(x, sid);
+  }
   if (data.settings) {
     const mine = Object.fromEntries(Object.entries(state.settings).filter(([, v]) => v));
-    await db.setMeta('settings', { ...data.settings, ...mine });
+    await saveSettings({ ...data.settings, ...mine });
   }
   await load();
   toast('Copia importada.');
@@ -994,13 +1202,294 @@ async function importData(file) {
   else route();
 }
 
+/* ---------- Cuenta y profesorado ---------- */
+
+function bare(title, html) {
+  document.body.classList.add('noauth');
+  $('#title').innerHTML = `<img class="mini" src="icons/logo-capitest.png" alt=""><span>${esc(title)}</span>`;
+  $('#top-actions').innerHTML = '';
+  main().innerHTML = `<div class="login card">${html}</div>`;
+  $$('input[type=password]').forEach(addEye);
+}
+
+const EYE = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/><path class="tacha" d="M4 4l16 16"/></svg>';
+
+function addEye(input) {
+  const box = document.createElement('span');
+  box.className = 'pass';
+  input.replaceWith(box);
+  box.innerHTML = `<button type="button" aria-label="Mostrar la contraseña" aria-pressed="false">${EYE}</button>`;
+  box.prepend(input);
+  const btn = box.querySelector('button');
+  btn.onclick = e => {
+    e.preventDefault();
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.setAttribute('aria-pressed', show);
+    btn.setAttribute('aria-label', show ? 'Ocultar la contraseña' : 'Mostrar la contraseña');
+    input.focus();
+  };
+}
+
+function enter() {
+  state.gate = null;
+  document.body.classList.remove('noauth', 'entrada');
+  showSync();
+  route();
+  runSync();
+}
+
+function showLogin() {
+  state.gate = showLogin;
+  bare('CapiTest', `<div class="marca-app"><img src="icons/logo-capitest.png" alt=""><span>CapiTest</span></div>
+    <form id="lf">
+      <label class="field"><span>Usuario</span><input type="text" name="usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <label class="field"><span>Contraseña</span><input type="password" name="clave" autocomplete="current-password" required></label>
+      <button class="btn primary block">Entrar</button>
+    </form>`);
+  document.body.classList.add('entrada');
+  $('#lf').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = ev.target.elements, btn = ev.target.querySelector('button');
+    btn.disabled = true;
+    try {
+      const step = await login(f.usuario.value.trim(), f.clave.value);
+      await load();
+      if (step === 'password') { state.gate = viewPassword; viewPassword(true); } else enter();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      btn.disabled = false;
+    }
+  };
+}
+
+async function viewInvite(token) {
+  history.replaceState(null, '', location.pathname + '#/');
+  let info;
+  try {
+    info = await api('invitacion/ver', { token });
+  } catch (e) {
+    state.gate = () => bare('CapiTest', `<div class="banner warn">${esc(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.')}</div>`);
+    state.gate();
+    return;
+  }
+  const other = net.user && net.user.usuario !== info.usuario;
+  const draw = () => {
+    bare('CapiTest', `<div class="marca-app"><img src="icons/logo-capitest.png" alt=""><span>CapiTest</span></div>
+      <p style="margin-top:0">Hola, <b>${esc(info.nombre)}</b>. Elige tu contraseña para entrar.</p>
+      ${other ? `<div class="banner warn">Se cerrará la sesión de ${esc(net.user.usuario)} en este dispositivo.</div>` : ''}
+      <form id="invf">
+        <label class="field"><span>Usuario</span><input type="text" name="usuario" autocomplete="username" value="${esc(info.usuario)}" readonly></label>
+        <label class="field"><span>Contraseña (10 caracteres o más)</span><input type="password" name="nueva" autocomplete="new-password" minlength="10" required></label>
+        <label class="field"><span>Repite la contraseña</span><input type="password" name="rep" autocomplete="new-password" required></label>
+        <button class="btn primary block">Entrar</button>
+      </form>`);
+    document.body.classList.add('entrada');
+    $('#invf').onsubmit = async ev => {
+      ev.preventDefault();
+      const f = ev.target.elements;
+      if (f.nueva.value !== f.rep.value) return toast('Las contraseñas no coinciden.');
+      try {
+        await acceptInvite(token, f.nueva.value);
+        await load();
+        enter();
+      } catch (e) {
+        toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      }
+    };
+  };
+  state.gate = draw;
+  draw();
+}
+
+function viewPassword(first = false) {
+  document.body.classList.remove('entrada');
+  const forced = first === true || net.user?.cambiarClave;
+  bare('Cambiar contraseña', `${forced ? '<p class="muted small" style="margin-top:0">Elige tu contraseña personal para terminar de entrar.</p>' : ''}
+    <form id="pf">
+      <input type="text" autocomplete="username" value="${esc(net.user?.usuario || '')}" hidden>
+      <label class="field"><span>Contraseña actual</span><input type="password" name="actual" autocomplete="current-password" required></label>
+      <label class="field"><span>Contraseña nueva (10 caracteres o más)</span><input type="password" name="nueva" autocomplete="new-password" minlength="10" required></label>
+      <label class="field"><span>Repite la contraseña nueva</span><input type="password" name="rep" autocomplete="new-password" required></label>
+      <div class="row end">${forced ? '' : '<button type="button" class="btn" id="cancel">Cancelar</button>'}<button class="btn primary">Guardar</button></div>
+    </form>`);
+  if ($('#cancel')) $('#cancel').onclick = enter;
+  $('#pf').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = ev.target.elements;
+    if (f.nueva.value !== f.rep.value) return toast('Las contraseñas nuevas no coinciden.');
+    try {
+      await changePassword(f.actual.value, f.nueva.value);
+      toast('Contraseña cambiada.');
+      enter();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+    }
+  };
+}
+
+function viewAccount() {
+  if (!net.user) { location.hash = '#/'; return; }
+  setHeader('Tu cuenta', '#/');
+  setNav('');
+  main().innerHTML = `<div class="card">
+      <div class="card-title">${esc(net.user.nombre)}</div>
+      <div class="muted">${esc(net.user.usuario)}</div>
+    </div>
+    <div class="card">
+      <p style="margin-top:0" id="synctext"></p>
+      <button class="btn block" id="syncnow">Sincronizar ahora</button>
+    </div>
+    <button class="btn block" id="chpass">Cambiar contraseña</button>
+    ${net.user.admin ? '<a class="btn block" style="margin-top:8px" href="#/profesorado">Gestionar profesorado</a>' : ''}
+    <button class="btn danger block" style="margin-top:8px" id="out">Cerrar sesión</button>`;
+  showSync();
+  $('#syncnow').onclick = async () => { await runSync(); showSync(); if (net.state === 'ok') toast('Sincronizado.'); };
+  $('#chpass').onclick = () => { state.gate = viewPassword; state.gate(); };
+  $('#out').onclick = async () => {
+    await runSync();
+    if (net.pending && !confirm(`Hay ${net.pending} cambio(s) sin subir al servidor y se perderán. ¿Cerrar sesión igualmente?`)) return;
+    await logout();
+    await load();
+    location.hash = '#/';
+    showLogin();
+  };
+}
+
+function showInvite(u) {
+  const url = `${location.origin}${location.pathname}#/invitacion/${u.token}`;
+  const body = `Hola, ${u.nombre.split(' ')[0]}:
+
+Ya tienes cuenta en CapiTest, la aplicación para crear y corregir exámenes tipo test con el móvil.
+
+Tu usuario: ${u.usuario}
+
+Entra desde este enlace y elige tu contraseña:
+${url}
+
+El enlace caduca en 7 días y solo se puede usar una vez.`;
+  const mail = `mailto:${encodeURIComponent(u.correo || '')}?subject=${encodeURIComponent('Tu cuenta de CapiTest')}&body=${encodeURIComponent(body)}`;
+  const s = modal(`<h3>Cuenta lista</h3>
+    <p>Envía el aviso a <b>${esc(u.correo || u.usuario)}</b>. El enlace no se volverá a mostrar.</p>
+    <a class="btn primary block" id="mail" href="${esc(mail)}">Preparar el correo</a>
+    <button class="btn block" style="margin-top:8px" id="copy">Copiar el enlace</button>
+    <div class="row end" style="margin-top:12px"><button class="btn" data-close>Hecho</button></div>`);
+  s.querySelector('#copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(url); toast('Enlace copiado.'); } catch { prompt('Copia el enlace', url); }
+  };
+  s.querySelector('[data-close]').onclick = () => { closeModal(); viewUsers(); };
+}
+
+async function viewUsers() {
+  if (!net.user?.admin) { location.hash = '#/cuenta'; return; }
+  setHeader('Profesorado', '#/cuenta');
+  setNav('');
+  let list;
+  try {
+    ({ usuarios: list } = await api('usuarios'));
+  } catch {
+    main().innerHTML = '<p class="empty">Para gestionar el profesorado hace falta conexión con el servidor.</p>';
+    return;
+  }
+  main().innerHTML = `<button class="btn primary block" id="nu">+ Nueva cuenta</button><div style="height:12px"></div>
+    ${list.map(u => `<div class="card">
+      <div class="card-title">${esc(u.nombre)}</div>
+      <div class="muted small">${esc(u.usuario)}${u.correo ? ` · ${esc(u.correo)}` : ''}${u.admin ? ' · administración' : ''}${u.activo ? '' : ' · desactivada'}</div>
+      <div class="acciones">
+        <button class="btn small" data-edit="${u.id}">Editar</button>
+        ${u.usuario === net.user.usuario ? '' : `<button class="btn small" data-reset="${u.id}">Nueva invitación</button>
+        <button class="btn small" data-act="${u.id}" data-on="${u.activo ? 0 : 1}">${u.activo ? 'Desactivar' : 'Activar'}</button>
+        <button class="btn small danger" data-del="${u.id}">Borrar</button>`}
+      </div>
+    </div>`).join('')}`;
+  $('#nu').onclick = () => {
+    const s = modal(`<h3>Nueva cuenta</h3><form id="uf">
+      <label class="field"><span>Nombre</span><input type="text" name="nombre" required></label>
+      <label class="field"><span>Usuario de Séneca</span><input type="text" name="usuario" autocapitalize="none" spellcheck="false" placeholder="Por ejemplo: jperlop123" required></label>
+      <label class="field"><span>Correo</span><input type="email" name="correo" autocapitalize="none" spellcheck="false" required></label>
+      <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Crear</button></div></form>`);
+    s.querySelector('[data-close]').onclick = closeModal;
+    s.querySelector('#uf').onsubmit = async ev => {
+      ev.preventDefault();
+      const f = ev.target.elements;
+      try {
+        showInvite(await api('usuarios', { nombre: f.nombre.value, usuario: f.usuario.value, correo: f.correo.value }));
+      } catch (e) { toast(e.message); }
+    };
+  };
+  $$('[data-edit]').forEach(b => (b.onclick = () => {
+    const u = list.find(x => x.id === +b.dataset.edit);
+    const mine = u.usuario === net.user.usuario;
+    const s = modal(`<h3>Editar cuenta</h3><form id="uf">
+      <label class="field"><span>Nombre</span><input type="text" name="nombre" value="${esc(u.nombre)}" required></label>
+      <label class="field"><span>Usuario de Séneca</span><input type="text" name="usuario" value="${esc(u.usuario)}" autocapitalize="none" spellcheck="false" ${mine ? 'readonly' : ''} required></label>
+      <label class="field"><span>Correo</span><input type="email" name="correo" value="${esc(u.correo || '')}" autocapitalize="none" spellcheck="false"></label>
+      <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Guardar</button></div></form>`);
+    s.querySelector('[data-close]').onclick = closeModal;
+    s.querySelector('#uf').onsubmit = async ev => {
+      ev.preventDefault();
+      const f = ev.target.elements;
+      try {
+        await api(`usuarios/${u.id}`, { editar: true, nombre: f.nombre.value, usuario: f.usuario.value, correo: f.correo.value });
+        closeModal();
+        if (mine) { net.user = { ...net.user, nombre: f.nombre.value.trim() }; await db.setMeta('session', net.user); }
+        viewUsers();
+      } catch (e) { toast(e.message); }
+    };
+  }));
+  $$('[data-del]').forEach(b => (b.onclick = () => {
+    const u = list.find(x => x.id === +b.dataset.del);
+    const s = modal(`<h3>Borrar a ${esc(u.nombre)}</h3>
+      <div class="banner bad">Se borrarán su cuenta y <b>todos sus grupos, exámenes y notas</b>. No se puede deshacer.</div>
+      <label class="field"><span>Escribe ${esc(u.usuario)} para confirmar</span><input type="text" id="sure" autocapitalize="none" spellcheck="false" autocomplete="off"></label>
+      <div class="row end"><button class="btn" data-close>Cancelar</button><button class="btn danger" id="ok" disabled>Borrar</button></div>`);
+    const sure = s.querySelector('#sure'), ok = s.querySelector('#ok');
+    sure.oninput = () => { ok.disabled = sure.value.trim().toLowerCase() !== u.usuario; };
+    s.querySelector('[data-close]').onclick = closeModal;
+    ok.onclick = async () => {
+      try {
+        await api(`usuarios/${u.id}/borrar`, { usuario: sure.value });
+        closeModal();
+        toast(`${u.nombre} borrado.`);
+        viewUsers();
+      } catch (e) { toast(e.message); }
+    };
+  }));
+  $$('[data-reset]').forEach(b => (b.onclick = async () => {
+    const u = list.find(x => x.id === +b.dataset.reset);
+    if (!confirm(`¿Crear una invitación nueva para ${u.nombre}? Su contraseña dejará de valer y se cerrarán sus sesiones.`)) return;
+    try {
+      showInvite(await api(`usuarios/${u.id}`, { invitar: true }));
+    } catch (e) { toast(e.message); }
+  }));
+  $$('[data-act]').forEach(b => (b.onclick = async () => {
+    try { await api(`usuarios/${b.dataset.act}`, { activo: b.dataset.on === '1' }); viewUsers(); } catch (e) { toast(e.message); }
+  }));
+}
+
 /* ---------- Arranque ---------- */
 
 async function init() {
   await load();
   askPersistence();
   window.addEventListener('hashchange', route);
-  route();
+  startSync({
+    apply: applyRemote,
+    onState: showSync,
+    onAuth: status => {
+      if (status === 401) showLogin();
+      else { state.gate = viewPassword; viewPassword(true); }
+    },
+  });
+  const step = await detect();
+  await load();
+  showSync();
+  const invite = location.hash.match(/^#\/invitacion\/([\w-]+)$/);
+  if (invite && net.server) viewInvite(invite[1]);
+  else if (step === 'login') showLogin();
+  else if (step === 'password') { state.gate = viewPassword; viewPassword(true); }
+  else if (step === 'needs-network') bare('CapiTest', '<p class="empty">Para entrar hace falta conexión con el servidor del centro.</p>');
+  else { route(); runSync(); }
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
