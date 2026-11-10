@@ -9,7 +9,7 @@ export GIT_SSH_COMMAND
 
 sano() {
   for _ in $(seq 1 20); do
-    curl -fsk https://127.0.0.1:8443/api/status >/dev/null && return 0
+    { curl -fsk https://127.0.0.1:8443/api/status || curl -fs http://127.0.0.1:8443/api/status; } >/dev/null && return 0
     sleep 1
   done
   return 1

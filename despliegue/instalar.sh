@@ -100,10 +100,10 @@ systemctl enable -q --now unattended-upgrades capitest.service capitest-actualiz
 systemctl restart capitest.service
 
 for _ in $(seq 1 20); do
-  curl -fsk https://127.0.0.1:8443/api/status >/dev/null && break
+  { curl -fsk https://127.0.0.1:8443/api/status || curl -fs http://127.0.0.1:8443/api/status; } >/dev/null && break
   sleep 1
 done
-curl -fsk https://127.0.0.1:8443/api/status >/dev/null || { echo "CapiTest no ha arrancado: journalctl -u capitest"; exit 1; }
+{ curl -fsk https://127.0.0.1:8443/api/status || curl -fs http://127.0.0.1:8443/api/status; } >/dev/null || { echo "CapiTest no ha arrancado: journalctl -u capitest"; exit 1; }
 
 echo
 echo "CapiTest está en marcha."
