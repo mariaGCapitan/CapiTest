@@ -1,5 +1,7 @@
 // Importación del examen base desde Moodle XML o GIFT.
-// Cada pregunta queda como { text, code, image, options: [{ text }], correct, optsCode }.
+// Cada pregunta de test queda como { text, code, image, options: [{ text }], correct, optsCode }.
+// Las que no son de test (ensayo, respuesta corta, numérica, emparejar) van aparte en «open»:
+// se imprimen con espacio para responder y se corrigen a mano.
 
 import { uid, loadImage } from './util.js';
 
@@ -17,7 +19,7 @@ export async function importExamFile(file) {
 async function parseMoodleXML(raw) {
   const doc = new DOMParser().parseFromString(raw, 'application/xml');
   if (doc.querySelector('parsererror')) throw new Error('El archivo XML está dañado o no es de Moodle.');
-  const questions = [], warnings = [];
+  const questions = [], openQs = [], warnings = [];
   let category = '';
   let n = 0;
   for (const qn of doc.querySelectorAll('quiz > question')) {
@@ -28,12 +30,28 @@ async function parseMoodleXML(raw) {
     }
     n++;
     const name = child(qn, 'name')?.querySelector('text')?.textContent?.trim() || `Pregunta ${n}`;
-    if (type !== 'multichoice' && type !== 'truefalse') {
-      warnings.push(`«${name}»: es de tipo «${type}», no de opción múltiple. No se importa.`);
-      continue;
-    }
     const qt = child(qn, 'questiontext');
     const files = filesOf(qt);
+    if (OPEN_TYPES[type]) {
+      const parts = await htmlToParts(qt?.querySelector('text')?.textContent || '', files);
+      if (type === 'matching') {
+        const subs = [...qn.querySelectorAll(':scope > subquestion')];
+        const left = [], right = [];
+        for (const sq of subs) {
+          const t = htmlText(sq.querySelector(':scope > text')?.textContent || '');
+          const a = sq.querySelector(':scope > answer > text')?.textContent?.trim() || '';
+          if (t) left.push(t);
+          if (a) right.push(a);
+        }
+        parts.text = matchingText(parts.text, left, right);
+      }
+      addOpen(openQs, name, parts, OPEN_TYPES[type], warnings);
+      continue;
+    }
+    if (type !== 'multichoice' && type !== 'truefalse') {
+      if (type !== 'description') warnings.push(`«${name}»: es de tipo «${type}», que CapiTest no sabe imprimir. No se importa.`);
+      continue;
+    }
     const parts = await htmlToParts(qt?.querySelector('text')?.textContent || '', files);
     if (parts.extraImages) warnings.push(`«${name}»: tiene varias imágenes; solo se usa la primera.`);
     if (parts.missingImage) warnings.push(`«${name}»: una imagen no viene dentro del archivo; no se importa.`);
@@ -56,7 +74,7 @@ async function parseMoodleXML(raw) {
     const q = buildQuestion(name, parts, answers, warnings);
     if (q) questions.push(q);
   }
-  return { questions, warnings, title: category };
+  return { questions, open: openQs, warnings, title: category };
 }
 
 const child = (el, tag) => el ? [...el.children].find(c => c.tagName === tag) : null;
@@ -88,7 +106,7 @@ async function parseGIFT(raw) {
   }
   flush();
 
-  const questions = [], warnings = [];
+  const questions = [], openQs = [], warnings = [];
   let title = '';
   let n = 0;
   for (let b of blocks) {
@@ -118,18 +136,24 @@ async function parseGIFT(raw) {
     if (post.trim()) body = `${body} _____ ${post.trim()}`;
     body = unescapeGift(body).trim();
 
+    const toParts = async () => (format === 'html' ? htmlToParts(body, {}) : format === 'markdown' ? markdownToParts(body) : { text: body, code: '', image: null });
     let answers;
     if (/^(T|TRUE|F|FALSE)\b/i.test(ans)) {
       const isTrue = /^T/i.test(ans);
       answers = [{ text: 'Verdadero', fraction: isTrue ? 100 : 0 }, { text: 'Falso', fraction: isTrue ? 0 : 100 }];
     } else if (ans.startsWith('#')) {
-      warnings.push(`«${name}»: es numérica. No se importa.`); continue;
+      addOpen(openQs, name, await toParts(), 'numérica', warnings); continue;
     } else if (!ans) {
-      warnings.push(`«${name}»: es de ensayo. No se importa.`); continue;
+      addOpen(openQs, name, await toParts(), 'de ensayo', warnings); continue;
     } else {
       const items = splitAnswers(ans);
-      if (items.some(a => a.text.includes('->'))) { warnings.push(`«${name}»: es de emparejar. No se importa.`); continue; }
-      if (!items.some(a => a.wrong)) { warnings.push(`«${name}»: es de respuesta corta. No se importa.`); continue; }
+      if (items.some(a => a.text.includes('->'))) {
+        const pairs = items.map(a => a.text.split('->'));
+        const parts = await toParts();
+        parts.text = matchingText(parts.text, pairs.map(x => x[0].trim()).filter(Boolean), pairs.map(x => (x[1] || '').trim()).filter(Boolean));
+        addOpen(openQs, name, parts, 'de emparejar', warnings); continue;
+      }
+      if (!items.some(a => a.wrong)) { addOpen(openQs, name, await toParts(), 'de respuesta corta', warnings); continue; }
       answers = items.map(a => ({ text: a.text, fraction: a.fraction }));
       if (answers.filter(a => a.fraction > 0).length > 1) warnings.push(`«${name}»: tiene varias respuestas con valor; solo cuenta como correcta la de más valor.`);
     }
@@ -148,7 +172,7 @@ async function parseGIFT(raw) {
     const q = buildQuestion(name, parts, fixed, warnings);
     if (q) questions.push(q);
   }
-  return { questions, warnings, title };
+  return { questions, open: openQs, warnings, title };
 }
 
 function balance(s) {
@@ -285,4 +309,22 @@ function buildQuestion(name, parts, answers, warnings) {
     optsCode: answers.every(a => a.isCode),
     correct,
   };
+}
+
+/* ---------- Preguntas para corregir a mano ---------- */
+
+const OPEN_TYPES = { essay: 'de ensayo', shortanswer: 'de respuesta corta', numerical: 'numérica', matching: 'de emparejar' };
+export const OPEN_LINES = 10;
+
+// Emparejar: el enunciado, los elementos numerados y las respuestas barajadas con letra.
+function matchingText(text, left, right) {
+  const r = [...right].sort(() => Math.random() - 0.5);
+  return [text, ...left.map((t, i) => `${i + 1}. ${t}`), '', ...r.map((t, i) => `${'abcdefghijklmnopqrstuvwxyz'[i] || '-'}) ${t}`)]
+    .filter((x, i) => x || i).join('\n').trim();
+}
+
+function addOpen(list, name, parts, kind, warnings) {
+  if (!parts.text && !parts.code && !parts.image) { warnings.push(`«${name}»: no tiene enunciado. No se importa.`); return; }
+  warnings.push(`«${name}»: es ${kind}. Se imprime con espacio para responder y se corrige a mano.`);
+  list.push({ id: uid(6), name, text: parts.text, code: parts.code || '', image: parts.image || null, points: 0, lines: OPEN_LINES });
 }

@@ -298,6 +298,65 @@ function drawQuestions(doc, exam, settings, v, label) {
     }
     y += renderQuestion(doc, q, i + 1, v.perm[qid], colX[col], y, colW, true) + Q_GAP;
   });
+
+  // Preguntas para corregir a mano: en página aparte, a todo el ancho y con líneas para responder.
+  const open = exam.open || [];
+  if (!open.length) return;
+  doc.addPage();
+  page++;
+  header();
+  y = M.top;
+  open.forEach((q, i) => {
+    const num = v.order.length + i + 1;
+    const h = renderOpen(doc, q, num, M.left, 0, M.right - M.left, false);
+    if (y + h > M.bottom && y > M.top) {
+      doc.addPage();
+      page++;
+      header();
+      y = M.top;
+    }
+    y += renderOpen(doc, q, num, M.left, y, M.right - M.left, true) + 6;
+  });
+}
+
+const LINE_GAP = 8;
+
+function renderOpen(doc, q, num, x, y0, W, draw) {
+  const indent = 7;
+  const lh = FS_Q * PT * 1.2;
+  let y = y0;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(FS_Q);
+  if (draw) doc.text(`${num}.`, x, y + lh * 0.8);
+  if (q.points) {
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(90);
+    if (draw) doc.text(pdfText(`(${String(Math.round(q.points * 100) / 100).replace('.', ',')} ${q.points === 1 ? 'punto' : 'puntos'})`), x + W, y + lh * 0.8, { align: 'right' });
+    doc.setTextColor(0);
+  }
+  doc.setFont('helvetica', 'normal');
+  if (q.text) {
+    const lines = doc.splitTextToSize(pdfText(q.text), W - indent - 22);
+    if (draw) doc.text(lines, x + indent, y + lh * 0.8, { lineHeightFactor: 1.2 });
+    y += lines.length * lh + 0.8;
+  }
+  if (q.code) y += codeBlock(doc, q.code, x + indent, y, W - indent, draw) + 1.2;
+  if (q.image) {
+    const maxW = W - indent, maxH = 80;
+    const s = Math.min(maxW / q.image.w, maxH / q.image.h);
+    const iw = q.image.w * s, ih = q.image.h * s;
+    if (draw) doc.addImage(q.image.data, q.image.fmt, x + indent, y, iw, ih, 'img_' + q.id, 'FAST');
+    y += ih + 1.5;
+  }
+  if (!q.text && !q.code && !q.image) y += lh;
+  const n = q.lines ?? 10;
+  if (draw && n) {
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.2);
+    for (let k = 1; k <= n; k++) doc.line(x + indent, y + k * LINE_GAP, x + W, y + k * LINE_GAP);
+  }
+  y += n * LINE_GAP + 2;
+  return y - y0;
 }
 
 const COL_GAP = 7, Q_GAP = 3.2;

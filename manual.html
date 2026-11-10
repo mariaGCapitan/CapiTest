@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Manual de CapiTest</title>
+<meta name="theme-color" content="#1b75bb">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<style>
+:root {
+  --azul: #1b75bb; --magenta: #e5006d; --naranja: #f9a03f; --verde: #3aa985;
+  --bg: #fbfbfa; --card: #fff; --ink: #1f2430; --muted: #5f6675; --line: #e5e7eb;
+  --soft: #eaf4fc; --warn: #b36b00; --warn-soft: #fff2df;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #12161f; --card: #1b2130; --ink: #e8ecf5; --muted: #9aa3b5; --line: #2b3346; --soft: #1d2f45; --azul: #5ea8e6; --warn: #f9a03f; --warn-soft: #3a2c17; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.tira { height: 6px; background: linear-gradient(90deg, #1b75bb 0 25%, #e5006d 25% 50%, #f9a03f 50% 75%, #3aa985 75% 100%); }
+header { background: var(--card); border-bottom: 1px solid var(--line); }
+.in { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+header .in { display: flex; align-items: center; gap: 12px; padding-top: 14px; padding-bottom: 14px; }
+header img { width: 40px; height: 40px; }
+header h1 { margin: 0; font-size: 1.3rem; flex: 1; }
+.volver { color: var(--azul); font-weight: 600; text-decoration: none; white-space: nowrap; }
+nav.indice { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 18px; margin: 20px 0; }
+nav.indice ol { margin: 6px 0 0; padding-left: 22px; columns: 2; column-gap: 28px; }
+@media (max-width: 520px) { nav.indice ol { columns: 1; } }
+nav.indice a { color: var(--azul); text-decoration: none; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 4px 18px 10px; margin: 0 0 16px; scroll-margin-top: 12px; }
+h2 { font-size: 1.15rem; margin: 16px 0 8px; display: flex; gap: 10px; align-items: center; }
+h2 .n { background: var(--azul); color: #fff; border-radius: 50%; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; font-size: .9rem; flex: none; }
+section:nth-of-type(4n+2) h2 .n { background: var(--magenta); }
+section:nth-of-type(4n+3) h2 .n { background: var(--naranja); }
+section:nth-of-type(4n+4) h2 .n { background: var(--verde); }
+ol.pasos, ul { padding-left: 22px; }
+li { margin-bottom: 6px; }
+b.boton { background: var(--soft); color: var(--azul); border-radius: 6px; padding: 0 6px; white-space: nowrap; }
+.nota { background: var(--warn-soft); color: var(--warn); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .95rem; }
+.consejo { background: var(--soft); border-radius: 10px; padding: 10px 14px; margin: 10px 0; font-size: .95rem; }
+footer { color: var(--muted); font-size: .85rem; text-align: center; padding: 10px 0 30px; }
+</style>
+</head>
+<body>
+<div class="tira"></div>
+<header><div class="in">
+  <img src="icons/logo-capitest.png" alt="">
+  <h1>Manual de CapiTest</h1>
+  <a class="volver" href="./">‹ Volver a CapiTest</a>
+</div></header>
+
+<main class="in">
+  <p>CapiTest prepara exámenes tipo test con una hoja de respuestas para cada alumno o alumna y los corrige con la cámara del móvil. Este manual explica los pasos en el orden en que se hacen.</p>
+
+  <nav class="indice"><b>Contenido</b>
+    <ol>
+      <li><a href="#entrar">Entrar</a></li>
+      <li><a href="#instalar">Tenerla en el móvil</a></li>
+      <li><a href="#grupo">Crear un grupo</a></li>
+      <li><a href="#examen">Crear un examen</a></li>
+      <li><a href="#abiertas">Preguntas para corregir a mano</a></li>
+      <li><a href="#imprimir">Imprimir</a></li>
+      <li><a href="#corregir">Corregir con la cámara</a></li>
+      <li><a href="#notas">Ver las notas</a></li>
+      <li><a href="#ajustes">Ajustes</a></li>
+      <li><a href="#problemas">Si algo falla</a></li>
+    </ol>
+  </nav>
+
+  <section id="entrar">
+    <h2><span class="n">1</span>Entrar</h2>
+    <ul>
+      <li>El usuario es tu <b>usuario de Séneca</b>.</li>
+      <li>La primera vez te llega un correo con un enlace para elegir tu contraseña. El enlace caduca en 7 días y solo sirve una vez.</li>
+      <li>Si olvidas la contraseña, pulsa <b class="boton">¿Has olvidado la contraseña?</b> en la pantalla de entrada. Te llegará un correo con un enlace para elegir otra. Ese enlace caduca en 2 horas.</li>
+      <li>Para cambiar la contraseña o cerrar la sesión, toca el círculo con tus iniciales, arriba a la derecha.</li>
+    </ul>
+    <p>Lo que hagas se guarda en el servidor del centro. Así puedes preparar el examen en el ordenador y corregirlo en el móvil.</p>
+  </section>
+
+  <section id="instalar">
+    <h2><span class="n">2</span>Tenerla en el móvil</h2>
+    <p>Abre CapiTest en el navegador del móvil y añádela a la pantalla de inicio. Se abrirá como una aplicación más.</p>
+    <ul>
+      <li><b>Android (Chrome):</b> menú ⋮ › <b class="boton">Añadir a pantalla de inicio</b> o <b class="boton">Instalar aplicación</b>.</li>
+      <li><b>iPhone (Safari):</b> botón Compartir › <b class="boton">Añadir a pantalla de inicio</b>.</li>
+    </ul>
+    <p>Puedes corregir aunque no haya cobertura. Lo corregido se envía al servidor cuando vuelve la conexión.</p>
+  </section>
+
+  <section id="grupo">
+    <h2><span class="n">3</span>Crear un grupo</h2>
+    <ol class="pasos">
+      <li>En Séneca, descarga la lista <b>«Mis alumnos y alumnas»</b> del grupo como <b>Hoja Microsoft Excel</b>. Se suele llamar <i>RegMisAlu.xls</i>.</li>
+      <li>En CapiTest, entra en <b class="boton">Grupos</b> › <b class="boton">+ Nuevo grupo</b> y escribe su nombre, por ejemplo «1.º ASIR A».</li>
+      <li>Sube el archivo de Séneca. Revisa la vista previa y confirma.</li>
+    </ol>
+    <p>Los nombres se guardan como <b>seudónimos</b> (por ejemplo, <i>ARI. MON., F.</i>), nunca el nombre completo ni el correo. Si llega alguien nuevo, puedes volver a importar la lista o añadirlo a mano.</p>
+  </section>
+
+  <section id="examen">
+    <h2><span class="n">4</span>Crear un examen</h2>
+    <ol class="pasos">
+      <li>En Moodle, exporta las preguntas desde el <b>Banco de preguntas › Exportar</b>, en formato <b>Moodle XML</b> o <b>GIFT</b>.</li>
+      <li>En CapiTest, pulsa <b class="boton">+ Nuevo examen</b>. Elige el módulo y el grupo y escribe el título.</li>
+      <li>Elige la <b>penalización por error</b>. Por ejemplo, con «Resta 1/4 de acierto», cada 4 errores se pierde un acierto.</li>
+      <li>Marca si quieres <b>barajar</b> las preguntas y las respuestas. Así cada persona tiene un orden distinto.</li>
+      <li>Sube el archivo de Moodle y pulsa <b class="boton">Crear</b>. Verás cuántas preguntas se han importado y los avisos, si los hay.</li>
+    </ol>
+    <p>En la pestaña <b class="boton">Preguntas</b> puedes revisar, cambiar, ordenar o borrar cada pregunta, y añadir otras a mano. Cada pregunta tiene entre 2 y 5 respuestas.</p>
+  </section>
+
+  <section id="abiertas">
+    <h2><span class="n">5</span>Preguntas para corregir a mano</h2>
+    <p>Si el archivo de Moodle trae preguntas que no son de test (de ensayo, de respuesta corta, numéricas o de emparejar), CapiTest te avisa al importarlo y las guarda aparte. También puedes añadirlas con <b class="boton">+ Pregunta para corregir a mano</b>.</p>
+    <ul>
+      <li>Se imprimen <b>después del test</b>, en una página aparte, con líneas para responder. El número de líneas de cada pregunta se puede cambiar.</li>
+      <li>Al importarlas te pide el <b>reparto de la nota</b>: cuánto vale el test sobre 10 y cuánto vale cada pregunta. Entre todo tiene que sumar 10. Por ejemplo: test 7 y dos preguntas de 1,5.</li>
+      <li>El reparto se cambia cuando quieras con el botón <b class="boton">Reparto de la nota</b>, en la pestaña Preguntas.</li>
+    </ul>
+    <p>Al corregir, debajo de las respuestas del test aparece una casilla por pregunta para escribir su nota. Se suma sola a la del test.</p>
+  </section>
+
+  <section id="imprimir">
+    <h2><span class="n">6</span>Imprimir</h2>
+    <ol class="pasos">
+      <li>En la pestaña <b class="boton">Imprimir</b>, indica si vas a imprimir a doble cara y cuántas <b>hojas de reserva</b> quieres. Son hojas sin nombre, para quien no tenga la suya.</li>
+      <li>Pulsa <b class="boton">Generar PDF</b> y descárgalo o compártelo.</li>
+      <li>Imprímelo <b>al 100 %</b> (tamaño real), sin «ajustar a la página».</li>
+    </ol>
+    <p>Cada persona recibe su hoja de respuestas con su nombre y un código QR, y detrás su examen.</p>
+    <div class="nota">Si cambias las preguntas de test después de imprimir, las hojas impresas dejan de valer y hay que generar el PDF otra vez. Si solo llega alguien nuevo al grupo, al generar otra vez el PDF se crea su hoja y el resto no cambia.</div>
+  </section>
+
+  <section id="corregir">
+    <h2><span class="n">7</span>Corregir con la cámara</h2>
+    <ol class="pasos">
+      <li>Abre el examen en el móvil, ve a la pestaña <b class="boton">Corregir</b> y pulsa <b class="boton">Abrir cámara</b>.</li>
+      <li>Enfoca la hoja de respuestas. Cuando la lee, aparecen la nota y las respuestas en colores: verde bien, rosa mal, gris en blanco.</li>
+      <li>Revisa las preguntas marcadas como <b>dudosas</b> (con borde naranja). Si hace falta, toca una pregunta para cambiar la respuesta leída.</li>
+      <li>Si hay preguntas para corregir a mano, escribe su nota en las casillas.</li>
+      <li>Pulsa <b class="boton">Guardar y seguir</b> y pasa a la siguiente hoja.</li>
+    </ol>
+    <p>Con una hoja de reserva, CapiTest te pregunta de quién es antes de guardar. Si la cámara no funciona, usa <b class="boton">Desde una foto</b>.</p>
+    <div class="consejo"><b>Consejos:</b> deja la hoja sobre la mesa y bien iluminada, sin la sombra del móvil, y que se vean los cuatro cuadrados negros de las esquinas.</div>
+  </section>
+
+  <section id="notas">
+    <h2><span class="n">8</span>Ver las notas</h2>
+    <ul>
+      <li>La pestaña <b class="boton">Notas</b> muestra la nota de cada persona, la media y los aprobados.</li>
+      <li>Toca un nombre para ver su hoja, corregir una respuesta, poner o cambiar la nota a mano, o meter a mano las respuestas de alguien que no tiene hoja leída.</li>
+      <li>Si falta la nota a mano de alguna pregunta, al lado de la nota aparece «falta a mano».</li>
+      <li>Debajo está el porcentaje de aciertos de cada pregunta. Si una estaba mal planteada, pulsa <b class="boton">Anular</b>: deja de contar y las notas se recalculan solas.</li>
+      <li><b class="boton">Descargar Excel</b> genera una hoja de cálculo con las notas, las respuestas de cada persona y el análisis de las preguntas.</li>
+    </ul>
+  </section>
+
+  <section id="ajustes">
+    <h2><span class="n">9</span>Ajustes</h2>
+    <p>En <b class="boton">Ajustes</b> escribes tu nombre y el del centro, que salen en la hoja, y eliges los logos de la cabecera de los exámenes.</p>
+  </section>
+
+  <section id="problemas">
+    <h2><span class="n">10</span>Si algo falla</h2>
+    <ul>
+      <li><b>No lee la hoja:</b> mejora la luz, aleja un poco el móvil y comprueba que se ven las cuatro esquinas. Si en el papel falta alguna, imprime otra vez esa hoja.</li>
+      <li><b>«Esta hoja es de una impresión anterior»:</b> las preguntas cambiaron después de imprimir. Hay que imprimir de nuevo.</li>
+      <li><b>No me llega el correo para cambiar la contraseña:</b> mira en la carpeta de spam. Si no está, pide a la administración de CapiTest un enlace nuevo.</li>
+      <li><b>El círculo de tus iniciales cambia de color o pone «cambios sin subir»:</b> no hay conexión con el servidor. Lo que hayas hecho está guardado en el dispositivo y se sube solo cuando vuelve la conexión.</li>
+    </ul>
+  </section>
+</main>
+<footer>CapiTest · creada por <b>María Ojeda</b> · IES Gran Capitán</footer>
+</body>
+</html>

@@ -5,15 +5,17 @@ import hmac
 import os
 import re
 import secrets
+import threading
 from pathlib import Path
 
 from flask import Flask, abort, g, jsonify, make_response, request, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+import correo
 import db
 
 ROOT = Path(__file__).resolve().parent.parent
-PUBLIC_FILES = {'index.html', 'manifest.webmanifest', 'sw.js'}
+PUBLIC_FILES = {'index.html', 'manual.html', 'manifest.webmanifest', 'sw.js'}
 PUBLIC_DIRS = {'css', 'js', 'vendor', 'img', 'icons'}
 
 COOKIE = 'capitest_sesion'
@@ -24,6 +26,7 @@ MAX_FAILS = {'usuario': 8, 'ip': 30}
 USER_RE = re.compile(r'^[a-z0-9._-]{3,40}$')
 MAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 INVITE_DAYS = 7
+RESET_HOURS = 2
 
 N, R, P = 2 ** 15, 8, 1
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
@@ -124,11 +127,11 @@ def create_app(database=None, secure=None, behind_proxy=None):
         resp.set_cookie(COOKIE, token, max_age=SESSION_DAYS * 86400, httponly=True, secure=secure,
                         samesite='Strict', path='/')
 
-    def new_invite(uid):
+    def new_invite(uid, seconds=INVITE_DAYS * 86400):
         token = secrets.token_urlsafe(32)
         con().execute('DELETE FROM invitaciones WHERE user_id = ?', (uid,))
         con().execute('INSERT INTO invitaciones (token, user_id, expira) VALUES (?, ?, ?)',
-                      (token_hash(token), uid, db.now() + INVITE_DAYS * 86400))
+                      (token_hash(token), uid, db.now() + seconds))
         return token
 
     def invited_user(token):
@@ -174,7 +177,42 @@ def create_app(database=None, secure=None, behind_proxy=None):
 
     @app.get('/api/status')
     def status():
-        return jsonify(app='CapiTest', api=1)
+        return jsonify(app='CapiTest', api=1, correo=bool(correo.config()))
+
+    # Contraseña olvidada: si la cuenta existe y tiene correo, se le envía un enlace de un solo uso.
+    # La respuesta es siempre la misma, para no desvelar qué usuarios existen.
+    @app.post('/api/olvido')
+    def forgot():
+        cfg = correo.config()
+        if not cfg:
+            return error('Este servidor no puede enviar correos. Pide a la administración un enlace nuevo.', 503)
+        usuario = str(body().get('usuario', '')).strip().lower()[:80]
+        ip = request.remote_addr or ''
+        keys = [('usuario', f'olvido:{usuario}'), ('ip', f'olvido-ip:{ip}')]
+        if blocked(keys):
+            return error('Demasiadas peticiones. Espera 15 minutos.', 429)
+        add_fail(keys)
+        u = con().execute('SELECT * FROM usuarios WHERE usuario = ? AND activo = 1', (usuario,)).fetchone()
+        if u and u['correo']:
+            token = new_invite(u['id'], RESET_HOURS * 3600)
+            db.log(con(), u['usuario'], 'pide cambiar la contraseña por correo', ip)
+            texto = (f"Hola, {u['nombre'].split(' ')[0]}:\n\n"
+                     f"Alguien ha pedido cambiar la contraseña de tu cuenta de CapiTest ({u['usuario']}).\n\n"
+                     f"Para elegir una contraseña nueva, entra en este enlace:\n{cfg['url']}#/invitacion/{token}\n\n"
+                     f"El enlace caduca en {RESET_HOURS} horas y solo se puede usar una vez. "
+                     "Si no lo has pedido tú, no hagas nada: tu contraseña sigue igual.")
+            destino = u['correo']
+
+            def send():
+                try:
+                    correo.enviar(destino, 'Cambiar tu contraseña de CapiTest', texto, cfg)
+                except Exception as e:  # noqa: BLE001 — se apunta en el registro del servicio
+                    app.logger.error('No se ha podido enviar el correo de contraseña: %s', e)
+
+            threading.Thread(target=send, daemon=True).start()
+        elif usuario:
+            db.log(con(), usuario, 'pide cambiar la contraseña (sin cuenta o sin correo)', ip)
+        return jsonify(ok=True)
 
     @app.post('/api/login')
     def login():

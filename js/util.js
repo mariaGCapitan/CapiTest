@@ -30,6 +30,10 @@ export function shuffle(arr) {
 export const range = n => Array.from({ length: n }, (_, i) => i);
 
 export const fmtNota = n => n.toFixed(2).replace('.', ',');
+// Puntos sin ceros de sobra: 7 → «7», 1,5 → «1,5», 0,25 → «0,25».
+export const fmtNum = n => String(Math.round((+n || 0) * 100) / 100).replace('.', ',');
+// Lee un número escrito con coma o punto; NaN si no lo es.
+export const parseNum = s => (String(s ?? '').trim() === '' ? NaN : Number(String(s).trim().replace(',', '.')));
 
 export function fmtDate(ts) {
   return new Date(ts).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });

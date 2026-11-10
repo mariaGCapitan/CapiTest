@@ -4,6 +4,7 @@
   gestionar.py crear-admin USUARIO "Nombre"   crea una cuenta de administración
   gestionar.py clave USUARIO                  pone una contraseña temporal
   gestionar.py migrar                         crea o actualiza las tablas
+  gestionar.py probar-correo DESTINO          envía un correo de prueba con la configuración de correo.env
 """
 
 import argparse
@@ -14,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import app as srv
+import correo
 import db
 
 
@@ -27,7 +29,18 @@ def main():
     c = sub.add_parser('clave')
     c.add_argument('usuario')
     sub.add_parser('migrar')
+    pc = sub.add_parser('probar-correo')
+    pc.add_argument('destino')
     args = ap.parse_args()
+    if args.orden == 'probar-correo':
+        if not correo.config():
+            sys.exit('Falta configurar /etc/capitest/correo.env')
+        try:
+            correo.enviar(args.destino, 'Prueba de CapiTest', 'Si lees esto, CapiTest ya puede enviar correos.')
+        except Exception as e:  # noqa: BLE001
+            sys.exit(f'No se ha podido enviar: {e}')
+        print('Correo enviado.')
+        return
     if not args.db:
         sys.exit('Indica la base de datos con --db o CAPITEST_DB')
 

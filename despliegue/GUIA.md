@@ -130,6 +130,39 @@ chown capitest:capitest /var/lib/capitest/capitest.db && chmod 640 /var/lib/capi
 systemctl start capitest capitest-actualizar.timer
 ```
 
+## Correo para recuperar la contraseña
+
+Con el correo configurado, la pantalla de entrada envía un enlace a quien haya olvidado la contraseña. El enlace caduca en 2 horas. Sin configurar, CapiTest pide que se solicite un enlace nuevo a la administración.
+
+1. En la cuenta de Google que enviará los correos, activa la **verificación en dos pasos**. Después, en **Seguridad › Contraseñas de aplicaciones**, crea una con el nombre `CapiTest`. Google muestra 16 letras: son la clave.
+2. En la máquina, como root, abre el archivo de configuración:
+
+   ```bash
+   nano /etc/capitest/correo.env
+   ```
+
+3. Escribe estas tres líneas con tus datos, guarda con Ctrl+O e Intro y sal con Ctrl+X:
+
+   ```
+   CAPITEST_URL=https://cpd.informatica.iesgrancapitan.org:9701/
+   CAPITEST_SMTP_USUARIO=tu-cuenta@gmail.com
+   CAPITEST_SMTP_CLAVE=las 16 letras
+   ```
+
+4. Protege el archivo y reinicia CapiTest:
+
+   ```bash
+   chmod 600 /etc/capitest/correo.env && systemctl restart capitest
+   ```
+
+5. Envía un correo de prueba:
+
+   ```bash
+   set -a; . /etc/capitest/correo.env; set +a; python3 /opt/capitest/server/gestionar.py probar-correo tu-cuenta@gmail.com
+   ```
+
+Cuando funcione el subdominio, cambia `CAPITEST_URL` por él y reinicia. Cada cuenta necesita su correo en **Gestionar profesorado**, también la de administración.
+
 ## Pasar el repositorio a privado
 
 Cuando CapiTest funcione en Luna, cambia el repositorio a privado en GitHub. La clave de solo lectura sigue valiendo y GitHub Pages deja de publicar la aplicación. A partir de ahí, el paso 2 de la instalación necesita copiar `instalar.sh` a la máquina a mano.

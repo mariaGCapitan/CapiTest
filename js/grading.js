@@ -4,7 +4,11 @@
 
 export const nopt = exam => Math.max(2, ...exam.questions.map(q => q.options.length));
 
-export function grade(exam, answers) {
+// Lo que vale el test sobre 10. Sin preguntas para corregir a mano, el test lo vale todo.
+export const testPoints = exam => (exam.open?.length ? (exam.testPoints ?? 10) : 10);
+
+// openScores: nota puesta a mano en cada pregunta abierta; si falta alguna, queda pendiente.
+export function grade(exam, answers, openScores = null) {
   let c = 0, w = 0, b = 0;
   const qs = exam.questions.filter(q => !q.annulled);
   for (const q of qs) {
@@ -15,13 +19,18 @@ export function grade(exam, answers) {
   }
   const N = qs.length;
   const raw = c - w * (exam.penalty || 0);
-  const nota = N ? Math.max(0, raw) / N * 10 : 0;
-  return { c, w, b, N, nota };
+  const test = N ? Math.max(0, raw) / N * testPoints(exam) : 0;
+  let manual = 0, pending = 0;
+  for (const q of exam.open || []) {
+    const s = openScores?.[q.id];
+    if (typeof s === 'number') manual += s; else pending++;
+  }
+  return { c, w, b, N, test, manual, pending, nota: Math.min(10, test + manual) };
 }
 
 export function summary(exam) {
   const res = Object.values(exam.results || {});
-  const notas = res.map(r => grade(exam, r.answers).nota);
+  const notas = res.map(r => grade(exam, r.answers, r.open).nota);
   const media = notas.length ? notas.reduce((a, b) => a + b, 0) / notas.length : 0;
   return { n: notas.length, media, aprobados: notas.filter(n => n >= 5).length };
 }

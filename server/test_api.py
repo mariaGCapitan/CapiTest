@@ -274,6 +274,43 @@ class Web(Base):
         self.assertIn("frame-ancestors 'none'", r.headers['Content-Security-Policy'])
         self.assertEqual(c.get('/js/app.js').status_code, 200)
 
+class Olvido(Base):
+    def test_sin_correo_configurado(self):
+        r = self.client().post('/api/olvido', json={'usuario': 'pepe'}, headers=H)
+        self.assertEqual(r.status_code, 503)
+
+    def test_envia_enlace_y_no_desvela_usuarios(self):
+        import correo
+        enviados = []
+        cfg = {'usuario': 'a@b.c', 'clave': 'x', 'url': 'https://capitest/', 'servidor': 's', 'puerto': 587}
+        orig_cfg, orig_env = correo.config, correo.enviar
+        correo.config = lambda: cfg
+        correo.enviar = lambda destino, asunto, texto, c=None: enviados.append((destino, texto))
+        try:
+            con = db.connect(self.path)
+            con.execute("UPDATE usuarios SET correo = 'pepe@x.es' WHERE usuario = 'pepe'")
+            con.close()
+            c = self.client()
+            r1 = c.post('/api/olvido', json={'usuario': 'pepe'}, headers=H)
+            r2 = c.post('/api/olvido', json={'usuario': 'nadie'}, headers=H)
+            self.assertEqual((r1.status_code, r1.get_json()), (r2.status_code, r2.get_json()))
+            for _ in range(50):
+                if enviados:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(len(enviados), 1)
+            destino, texto = enviados[0]
+            self.assertEqual(destino, 'pepe@x.es')
+            token = texto.split('#/invitacion/')[1].split()[0]
+            # La contraseña vieja sigue valiendo hasta que se usa el enlace.
+            self.client('pepe')
+            r = c.post('/api/invitacion', json={'token': token, 'nueva': 'otra-clave-larga'}, headers=H)
+            self.assertEqual(r.status_code, 200)
+            r = c.post('/api/invitacion', json={'token': token, 'nueva': 'otra-clave-larga'}, headers=H)
+            self.assertEqual(r.status_code, 404)
+        finally:
+            correo.config, correo.enviar = orig_cfg, orig_env
+
 
 if __name__ == '__main__':
     unittest.main()

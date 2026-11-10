@@ -292,3 +292,12 @@ table.list td.num, table.list th.num { text-align: right; font-variant-numeric: 
   opacity: 0; transition: .2s; pointer-events: none; z-index: 60; max-width: calc(100% - 32px);
 }
 #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Nota a mano de las preguntas abiertas */
+.abiertas { border-top: 1px solid var(--line, #ddd); padding-top: 10px; }
+.abierta { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.abierta > span:first-child { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.abierta input[type=text] { width: 4.5em; text-align: center; font-weight: 700; padding: 8px 6px; }
+.abierta input.bad { outline: 2px solid var(--bad); color: var(--bad); }
+.nowrap { white-space: nowrap; }
+.abierta > .nowrap { flex: none; width: 7.5em; text-align: right; }

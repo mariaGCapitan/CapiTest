@@ -1,12 +1,12 @@
 import { db, askPersistence } from './db.js';
 import {
-  $, $$, esc, uid, toast, LETTERS, fmtNota, fmtDate, PENALTIES, penaltyText,
+  $, $$, esc, uid, toast, LETTERS, fmtNota, fmtNum, parseNum, fmtDate, PENALTIES, penaltyText,
   canShareFiles, shareFile, downloadFile, readFile, loadImage, prepareImage, safeName,
 } from './util.js';
 import { maxQuestions, LAYOUT } from './layout.js';
-import { importExamFile, MAX_OPTS } from './import.js';
+import { importExamFile, MAX_OPTS, OPEN_LINES } from './import.js';
 import { buildPrint, examPDF, parseQR } from './pdf.js';
-import { grade, summary, questionStats, versionFor, nopt } from './grading.js';
+import { grade, summary, questionStats, versionFor, nopt, testPoints } from './grading.js';
 import { readBubbles, drawReading, MARKED, DOUBT } from './omr.js';
 import { Scanner, analyzeFile } from './scan.js';
 import { examExcel } from './excel.js';
@@ -190,6 +190,7 @@ async function route() {
     case 'grupo': return viewGroup(parts[1]);
     case 'examen':
       if (parts[2] === 'pregunta') return viewQuestion(parts[1], parts[3]);
+      if (parts[2] === 'abierta') return viewOpen(parts[1], parts[3]);
       return viewExam(parts[1], parts[2] || 'preguntas');
     case 'ajustes': return viewSettings();
     case 'cuenta': return viewAccount();
@@ -315,30 +316,170 @@ function examForm(exam) {
     if (!title) return toast('Escribe el título del examen.');
     const target = exam || { id: uid(6), created: Date.now(), questions: [], results: {}, printed: null };
     Object.assign(target, { title, module, groupId: f.group.value, penalty, shuffleQ: f.sq.checked, shuffleO: f.so.checked });
-    if (imported) target.questions = imported.questions;
+    if (imported) { target.questions = imported.questions; target.open = imported.open; }
     await saveExam(target);
     closeModal();
     if (exam) { route(); return; }
     location.hash = `#/examen/${target.id}`;
-    if (imported) setTimeout(() => importSummary(imported), 50);
+    if (imported) setTimeout(() => importSummary(imported, target), 50);
   };
 }
 
-function importSummary(res) {
+function importSummary(res, exam = null) {
+  const nOpen = res.open?.length || 0;
   const s = modal(`<h3>Examen importado</h3>
-    <p><b>${res.questions.length}</b> preguntas importadas.</p>
+    <p><b>${res.questions.length}</b> preguntas de test importadas${nOpen ? ` y <b>${nOpen}</b> para corregir a mano` : ''}.</p>
     ${res.warnings.length ? `<div class="banner warn"><b>Avisos (${res.warnings.length})</b><ul class="small">${res.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
-    <div class="row end"><button class="btn primary" data-close>Vale</button></div>`);
-  s.querySelector('[data-close]').onclick = closeModal;
+    <div class="row end"><button class="btn primary" data-close>${nOpen && exam ? 'Repartir la nota' : 'Vale'}</button></div>`);
+  s.querySelector('[data-close]').onclick = () => {
+    closeModal();
+    if (nOpen && exam) pointsDialog(exam);
+  };
 }
+
+/* ---------- Preguntas para corregir a mano ---------- */
+
+const shortText = q => (q.text || q.code || '').replace(/\s+/g, ' ').slice(0, 70);
+const openSum = exam => (exam.open || []).reduce((a, q) => a + (+q.points || 0), 0);
+// El reparto vale si el test y las preguntas abiertas suman 10.
+const pointsOk = exam => !exam.open?.length || (exam.testPoints != null && Math.abs(exam.testPoints + openSum(exam) - 10) < 1e-6);
+
+function pointsDialog(exam, done = route) {
+  const open = exam.open || [];
+  const N = exam.questions.length;
+  const s = modal(`<h3>Reparto de la nota</h3>
+    <p class="small" style="margin-top:0">Hay ${open.length === 1 ? 'una pregunta' : `${open.length} preguntas`} para corregir a mano. Entre el test y ${open.length === 1 ? 'ella' : 'ellas'} tienen que sumar 10.</p>
+    <form id="ptf">
+      <label class="field"><span>¿Cuánto vale la parte de test sobre 10?</span>
+        <input type="text" inputmode="decimal" name="tp" value="${exam.testPoints != null ? fmtNum(exam.testPoints) : ''}" placeholder="Por ejemplo: 7" required></label>
+      ${open.map((q, i) => `<label class="field"><span>Pregunta ${N + i + 1}: ${esc(shortText(q))}</span>
+        <input type="text" inputmode="decimal" data-pt="${q.id}" value="${q.points ? fmtNum(q.points) : ''}" required></label>`).join('')}
+      <p class="small" id="ptsum" style="font-weight:600"></p>
+      <div class="row end"><button type="button" class="btn" data-close>Más tarde</button><button class="btn primary">Guardar</button></div>
+    </form>`);
+  const f = s.querySelector('#ptf');
+  const read = () => {
+    const tp = parseNum(f.tp.value);
+    const pts = Object.fromEntries([...s.querySelectorAll('[data-pt]')].map(i => [i.dataset.pt, parseNum(i.value)]));
+    const total = tp + Object.values(pts).reduce((a, b) => a + b, 0);
+    return { tp, pts, total };
+  };
+  const show = () => {
+    const { total } = read();
+    const el = s.querySelector('#ptsum');
+    if (!Number.isFinite(total)) { el.textContent = ''; return; }
+    const ok = Math.abs(total - 10) < 1e-6;
+    el.textContent = ok ? 'Suman 10. Correcto.' : `Suman ${fmtNum(total)}: ${total < 10 ? 'faltan' : 'sobran'} ${fmtNum(Math.abs(10 - total))}.`;
+    el.style.color = ok ? 'var(--ok)' : 'var(--bad)';
+  };
+  f.oninput = show;
+  show();
+  s.querySelector('[data-close]').onclick = () => { closeModal(); done(); };
+  f.onsubmit = async ev => {
+    ev.preventDefault();
+    const { tp, pts, total } = read();
+    if (!(tp >= 0 && tp <= 10)) return toast('El valor del test tiene que estar entre 0 y 10.');
+    if (Object.values(pts).some(v => !(v > 0))) return toast('Cada pregunta tiene que valer más de 0.');
+    if (Math.abs(total - 10) > 1e-6) return toast(`Suman ${fmtNum(total)} y tienen que sumar 10.`);
+    exam.testPoints = tp;
+    for (const q of open) q.points = pts[q.id];
+    await saveExam(exam);
+    closeModal();
+    done();
+  };
+}
+
+function viewOpen(examId, qid) {
+  const exam = examById(examId);
+  if (!exam) { location.hash = '#/'; return; }
+  exam.open ||= [];
+  const isNew = qid === 'nueva';
+  const orig = exam.open.find(q => q.id === qid);
+  if (!isNew && !orig) { location.hash = `#/examen/${examId}`; return; }
+  const q = orig ? structuredClone(orig) : { id: uid(6), text: '', code: '', image: null, points: 0, lines: OPEN_LINES };
+  const num = exam.questions.length + (isNew ? exam.open.length + 1 : exam.open.indexOf(orig) + 1);
+  setNav('examenes');
+  setHeader(`Pregunta ${num} · a mano`, `#/examen/${examId}/preguntas`);
+  const render = () => {
+    main().innerHTML = `<form id="qf">
+      <p class="muted small" style="margin-top:0">Se imprime después del test, con líneas para responder, y se corrige a mano.</p>
+      <label class="field"><span>Enunciado</span><textarea name="text" rows="5">${esc(q.text)}</textarea></label>
+      <label class="field"><span>Código (opcional)</span><textarea name="code" class="code" rows="5" spellcheck="false" autocapitalize="off">${esc(q.code)}</textarea></label>
+      <div class="field"><span class="muted small" style="font-weight:600">Imagen (opcional)</span>
+        ${q.image ? `<img class="imgprev" src="${q.image.data}" alt="Imagen de la pregunta"><button type="button" class="btn small danger" id="rmimg">Quitar imagen</button>`
+          : `<input type="file" accept="image/*" id="img">`}
+      </div>
+      <label class="field"><span>Líneas para responder</span><input type="number" name="lines" min="0" max="40" value="${q.lines}"></label>
+      <p class="muted small">Lo que vale se pone en «Reparto de la nota», en la pestaña Preguntas.</p>
+      <div class="row end">
+        ${isNew ? '' : '<button type="button" class="btn danger" id="del">Borrar</button><span class="grow"></span>'}
+        <a class="btn" href="#/examen/${examId}/preguntas">Cancelar</a>
+        <button class="btn primary">Guardar</button>
+      </div>
+    </form>`;
+    const f = $('#qf');
+    const collect = () => {
+      q.text = f.text.value.trim();
+      q.code = f.code.value.replace(/\s+$/, '');
+      q.lines = Math.max(0, Math.min(40, parseInt(f.lines.value, 10) || 0));
+    };
+    $('#img')?.addEventListener('change', async e => {
+      collect();
+      if (e.target.files[0]) q.image = await prepareImage(e.target.files[0]);
+      render();
+    });
+    if ($('#rmimg')) $('#rmimg').onclick = () => { collect(); q.image = null; render(); };
+    if ($('#del')) $('#del').onclick = async () => {
+      if (!confirm('¿Borrar esta pregunta? Habrá que repartir de nuevo la nota.')) return;
+      exam.open = exam.open.filter(x => x.id !== q.id);
+      await saveExam(exam);
+      location.hash = `#/examen/${examId}/preguntas`;
+    };
+    f.onsubmit = async ev => {
+      ev.preventDefault();
+      collect();
+      if (!q.text && !q.code && !q.image) return toast('La pregunta necesita enunciado, código o imagen.');
+      const at = exam.open.findIndex(x => x.id === q.id);
+      if (at < 0) exam.open.push(q); else exam.open[at] = q;
+      await saveExam(exam);
+      location.hash = `#/examen/${examId}/preguntas`;
+      if (!pointsOk(exam)) setTimeout(() => pointsDialog(exam), 50);
+    };
+  };
+  render();
+}
+
+// Casillas para poner la nota de cada pregunta abierta. Vacía = sin nota todavía.
+function openInputs(container, exam, scores, onChange) {
+  const open = exam.open || [];
+  if (!open.length) { container.innerHTML = ''; return; }
+  const N = exam.questions.length;
+  container.innerHTML = `<div class="abiertas">
+    <div class="small" style="font-weight:600;margin-bottom:8px">Nota a mano${pointsOk(exam) ? '' : ' · <span style="color:var(--bad)">falta repartir la nota en la pestaña Preguntas</span>'}</div>
+    ${open.map((q, i) => `<label class="abierta"><span><b>P${N + i + 1}</b> <span class="muted small">${esc(shortText(q))}</span></span>
+      <span class="nowrap"><input type="text" inputmode="decimal" autocomplete="off" data-open="${q.id}" value="${typeof scores[q.id] === 'number' ? fmtNum(scores[q.id]) : ''}" placeholder="–" aria-label="Nota de la pregunta ${N + i + 1}"> / ${fmtNum(q.points)}</span></label>`).join('')}
+  </div>`;
+  $$('[data-open]', container).forEach(inp => (inp.oninput = () => {
+    const q = open.find(x => x.id === inp.dataset.open);
+    const v = parseNum(inp.value);
+    const empty = inp.value.trim() === '';
+    const bad = !empty && !(v >= 0 && v <= q.points + 1e-9);
+    inp.classList.toggle('bad', bad);
+    if (empty || bad) delete scores[q.id]; else scores[q.id] = v;
+    onChange();
+  }));
+}
+
+const gradeText = (exam, gr) => `${gr.c} bien · ${gr.w} mal · ${gr.b} en blanco` + (exam.open?.length
+  ? ` · test ${fmtNum(gr.test)} + a mano ${fmtNum(gr.manual)}${gr.pending ? ` (faltan ${gr.pending})` : ''}` : '');
 
 function importDialog(exam) {
   const s = modal(`<h3>Importar preguntas</h3>
     <form id="imf">
       <label class="field"><span>Archivo de Moodle (XML o GIFT)</span>
         <input type="file" name="file" accept=".xml,.gift,.txt,text/xml,text/plain" required></label>
-      ${exam.questions.length ? `
-      <label class="check"><input type="radio" name="mode" value="replace" checked><span>Sustituir las ${exam.questions.length} preguntas actuales</span></label>
+      ${exam.questions.length || exam.open?.length ? `
+      <label class="check"><input type="radio" name="mode" value="replace" checked><span>Sustituir las ${exam.questions.length + (exam.open?.length || 0)} preguntas actuales</span></label>
       <label class="check"><input type="radio" name="mode" value="add"><span>Añadirlas al final</span></label>` : ''}
       <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Importar</button></div>
     </form>`);
@@ -348,12 +489,13 @@ function importDialog(exam) {
     ev.preventDefault();
     let res;
     try { res = await importExamFile(f.file.files[0]); } catch (err) { return toast(err.message); }
-    if (!res.questions.length) { importSummary(res); return; }
+    if (!res.questions.length && !res.open.length) { importSummary(res); return; }
     const add = f.mode && f.mode.value === 'add';
     exam.questions = add ? [...exam.questions, ...res.questions] : res.questions;
+    exam.open = add ? [...(exam.open || []), ...res.open] : res.open;
     await saveExam(exam);
     route();
-    setTimeout(() => importSummary(res), 50);
+    setTimeout(() => importSummary(res, exam), 50);
   };
 }
 
@@ -417,8 +559,44 @@ function tabQuestions(exam, el) {
         <button class="iconbtn" data-del="${i}" aria-label="Borrar pregunta ${i + 1}">🗑️</button>
       </div>
     </div>`).join('');
+  const open = exam.open || [];
+  if (open.length) {
+    html += `<h2 class="section">Para corregir a mano</h2>
+      ${pointsOk(exam) ? `<p class="muted small">Test: ${fmtNum(testPoints(exam))} puntos · a mano: ${fmtNum(openSum(exam))} puntos. Se imprimen después del test, con líneas para responder.</p>`
+        : '<div class="banner warn">Falta repartir la nota entre el test y estas preguntas.</div>'}
+      <button class="btn block" id="pts" style="margin-bottom:12px">Reparto de la nota</button>
+      ${open.map((q, i) => `<div class="card q">
+        <div class="num">${n + i + 1}</div>
+        <a class="body" href="#/examen/${exam.id}/abierta/${q.id}" style="color:inherit;text-decoration:none">
+          <div class="txt">${esc(q.text || q.code)}</div>
+          <span class="badge warn">a mano</span><span class="badge">${q.points ? `${fmtNum(q.points)} ${q.points === 1 ? 'punto' : 'puntos'}` : 'sin valor'}</span>
+          <span class="badge">${q.lines} líneas</span>${q.code ? '<span class="badge">código</span>' : ''}${q.image ? '<span class="badge">imagen</span>' : ''}
+        </a>
+        <div class="tools">
+          <button class="iconbtn" data-oup="${i}" aria-label="Subir" ${i ? '' : 'disabled'}>▲</button>
+          <button class="iconbtn" data-odown="${i}" aria-label="Bajar" ${i < open.length - 1 ? '' : 'disabled'}>▼</button>
+          <button class="iconbtn" data-odel="${i}" aria-label="Borrar pregunta ${n + i + 1}">🗑️</button>
+        </div>
+      </div>`).join('')}`;
+  }
+  html += `<a class="btn small" style="margin-top:8px" href="#/examen/${exam.id}/abierta/nueva">+ Pregunta para corregir a mano</a>`;
   el.innerHTML = html;
   $('#imp').onclick = () => importDialog(exam);
+  if ($('#pts')) $('#pts').onclick = () => pointsDialog(exam);
+  const omove = async (i, d) => {
+    [open[i], open[i + d]] = [open[i + d], open[i]];
+    await saveExam(exam);
+    tabQuestions(exam, el);
+  };
+  $$('[data-oup]', el).forEach(b => (b.onclick = () => omove(+b.dataset.oup, -1)));
+  $$('[data-odown]', el).forEach(b => (b.onclick = () => omove(+b.dataset.odown, 1)));
+  $$('[data-odel]', el).forEach(b => (b.onclick = async () => {
+    const i = +b.dataset.odel;
+    if (!confirm(`¿Borrar la pregunta ${n + i + 1}? Habrá que repartir de nuevo la nota.`)) return;
+    open.splice(i, 1);
+    await saveExam(exam);
+    tabQuestions(exam, el);
+  }));
   const move = async (i, d) => {
     const q = exam.questions;
     [q[i], q[i + d]] = [q[i + d], q[i]];
@@ -527,11 +705,12 @@ function tabPrint(exam, el) {
   if (!n) { el.innerHTML = `<p class="empty">Primero importa las preguntas.</p>`; return; }
   if (n > max) { el.innerHTML = `<div class="banner bad">Hay ${n} preguntas y en la hoja caben ${max}.</div>`; return; }
   if (!g || !g.students.length) html += `<div class="banner warn">El grupo no tiene alumnado; solo se imprimirán hojas de reserva.</div>`;
+  if (!pointsOk(exam)) html += `<div class="banner warn">Falta repartir la nota entre el test y las preguntas para corregir a mano (pestaña Preguntas).</div>`;
   if (st === 'stale') html += `<div class="banner warn">Las preguntas han cambiado desde la última impresión. Al generar el PDF se crean versiones nuevas y las hojas impresas antes dejan de valer.</div>`;
   if (st === 'partial') html += `<div class="banner info">Hay alumnado nuevo en el grupo. Al generar el PDF se le crea su versión; las del resto no cambian.</div>`;
   if (st === 'ok') html += `<div class="banner ok">Versiones creadas el ${fmtDate(exam.printed.at)}. Si vuelves a generar el PDF, cada alumno o alumna conserva su misma versión.</div>`;
   html += `<div class="card">
-      <p style="margin-top:0"><b>${n}</b> preguntas · <b>${g?.students.length || 0}</b> alumnos/as de ${esc(g?.name || '—')}<br>
+      <p style="margin-top:0"><b>${n}</b> preguntas${exam.open?.length ? ` de test y <b>${exam.open.length}</b> para corregir a mano` : ''} · <b>${g?.students.length || 0}</b> alumnos/as de ${esc(g?.name || '—')}<br>
       <span class="muted">${exam.shuffleQ ? 'Preguntas barajadas' : 'Preguntas en orden'} · ${exam.shuffleO ? 'respuestas barajadas' : 'respuestas en orden'}</span></p>
       <label class="check"><input type="checkbox" id="duplex" ${opts.duplex ? 'checked' : ''}><span>Impresión a doble cara (la hoja de respuestas queda sola en su folio)</span></label>
       <label class="field"><span>Hojas de reserva sin nombre</span><input type="number" id="reserves" min="0" max="30" value="${opts.reserves}"></label>
@@ -725,16 +904,19 @@ function resultCard(exam, v, sheetId, printed, photo) {
     ${!reserve && exam.results[v.studentId] ? '<div class="banner warn">Esta hoja ya estaba corregida. Si guardas, se sustituye.</div>' : ''}
     ${doubts ? `<div class="banner warn">Hay ${doubts} pregunta(s) dudosa(s): con varias marcas, con el círculo a medio rellenar o tachado. Compruébalas con la hoja.</div>` : ''}
     <div id="grid"></div>
+    <div id="openin"></div>
     <details><summary class="muted small">Ver la foto leída</summary><img class="snap" src="${photo}" alt="Foto de la hoja con las marcas leídas"></details>
     <div class="row"><button class="btn grow" id="discard">Descartar</button><button class="btn primary grow" id="save">Guardar${state.scanner ? ' y seguir' : ''}</button></div>
   </div>`;
+  const scores = { ...(reserve ? {} : exam.results[v.studentId]?.open || {}) };
   const upd = () => {
-    const gr = grade(exam, printedToAnswers(v, printed));
+    const gr = grade(exam, printedToAnswers(v, printed), scores);
     $('#nota').textContent = fmtNota(gr.nota);
     $('#nota').className = 'nota ' + (gr.nota >= 5 ? 'ok' : 'bad');
-    $('#detail').textContent = `${gr.c} bien · ${gr.w} mal · ${gr.b} en blanco`;
+    $('#detail').textContent = gradeText(exam, gr);
   };
   answerGrid($('#grid'), exam, v, printed, upd);
+  openInputs($('#openin'), exam, scores, upd);
   upd();
   r.scrollIntoView({ behavior: 'smooth', block: 'start' });
   const next = () => { r.innerHTML = ''; state.scanner?.resume(); };
@@ -744,7 +926,8 @@ function resultCard(exam, v, sheetId, printed, photo) {
     if (!sid) return toast('Elige de quién es la hoja.');
     if (reserve && exam.results[sid] && !confirm('Esa persona ya tiene nota. ¿Sustituirla?')) return;
     const name = students.find(s => s.id === sid)?.name || '';
-    exam.results[sid] = { sheetId, answers: printedToAnswers(v, printed), at: Date.now(), name };
+    const open = reserve ? { ...(exam.results[sid]?.open || {}), ...scores } : scores;
+    exam.results[sid] = { sheetId, answers: printedToAnswers(v, printed), open, at: Date.now(), name };
     await saveResult(exam, sid);
     toast(`Guardado: ${name}`);
     const c = $('#count');
@@ -776,8 +959,8 @@ function tabGrades(exam, el) {
       <tbody>${students.map(s => {
         const r = exam.results[s.id];
         if (!r) return `<tr data-sid="${s.id}"><td>${esc(s.name)}</td><td class="num muted">—</td><td class="num muted small">sin corregir</td></tr>`;
-        const gr = grade(exam, r.answers);
-        return `<tr data-sid="${s.id}"><td>${esc(s.name)}</td><td class="num" style="font-weight:700;color:var(${gr.nota >= 5 ? '--ok' : '--bad'})">${fmtNota(gr.nota)}</td><td class="num small">${gr.c} ${gr.w} ${gr.b}</td></tr>`;
+        const gr = grade(exam, r.answers, r.open);
+        return `<tr data-sid="${s.id}"><td>${esc(s.name)}</td><td class="num" style="font-weight:700;color:var(${gr.nota >= 5 ? '--ok' : '--bad'})">${fmtNota(gr.nota)}</td><td class="num small">${gr.c} ${gr.w} ${gr.b}${gr.pending ? `<br><span style="color:var(--warn)">falta${gr.pending > 1 ? 'n' : ''} ${gr.pending} a mano</span>` : ''}</td></tr>`;
       }).join('')}</tbody>
     </table>
     <h2 class="section">Preguntas</h2>
@@ -809,16 +992,19 @@ function studentDetail(exam, sid, name, done) {
     ${r ? `<p class="muted small">Corregida el ${fmtDate(r.at)}${r.sheetId.startsWith('R') ? ` con la hoja de reserva ${esc(r.sheetId)}` : ''}.</p>`
       : '<p class="muted small">Sin corregir. Puedes meter las respuestas a mano en el orden de su hoja.</p>'}
     <div id="g2"></div>
+    <div id="o2"></div>
     <div class="row" style="margin-top:12px">
       ${r ? '<button class="btn danger" id="rm">Borrar nota</button>' : ''}<span class="grow"></span>
       <button class="btn" data-close>Cancelar</button><button class="btn primary" id="ok">Guardar</button>
     </div>`);
+  const scores = { ...(r?.open || {}) };
   const upd = () => {
-    const gr = grade(exam, printedToAnswers(v, printed));
+    const gr = grade(exam, printedToAnswers(v, printed), scores);
     s.querySelector('#nn').textContent = fmtNota(gr.nota);
-    s.querySelector('#det').textContent = `${gr.c} bien · ${gr.w} mal · ${gr.b} en blanco`;
+    s.querySelector('#det').textContent = gradeText(exam, gr);
   };
   answerGrid(s.querySelector('#g2'), exam, v, printed, upd);
+  openInputs(s.querySelector('#o2'), exam, scores, upd);
   upd();
   s.querySelector('[data-close]').onclick = closeModal;
   if (s.querySelector('#rm')) s.querySelector('#rm').onclick = async () => {
@@ -829,7 +1015,7 @@ function studentDetail(exam, sid, name, done) {
     done();
   };
   s.querySelector('#ok').onclick = async () => {
-    exam.results[sid] = { sheetId: r?.sheetId || v.sheetId || sid, answers: printedToAnswers(v, printed), at: Date.now(), name, manual: true };
+    exam.results[sid] = { sheetId: r?.sheetId || v.sheetId || sid, answers: printedToAnswers(v, printed), open: scores, at: Date.now(), name, manual: true };
     await saveResult(exam, sid);
     closeModal();
     done();
@@ -1246,8 +1432,11 @@ function showLogin() {
       <label class="field"><span>Usuario</span><input type="text" name="usuario" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
       <label class="field"><span>Contraseña</span><input type="password" name="clave" autocomplete="current-password" required></label>
       <button class="btn primary block">Entrar</button>
-    </form>`);
+    </form>
+    <p class="small" style="text-align:center;margin-top:16px"><a href="#" id="olvido">¿Has olvidado la contraseña?</a></p>
+    <p class="small" style="text-align:center"><a href="manual.html" target="_blank" rel="noopener">Manual de uso</a></p>`);
   document.body.classList.add('entrada');
+  $('#olvido').onclick = e => { e.preventDefault(); forgotDialog($('#lf').elements.usuario.value.trim()); };
   $('#lf').onsubmit = async ev => {
     ev.preventDefault();
     const f = ev.target.elements, btn = ev.target.querySelector('button');
@@ -1256,6 +1445,31 @@ function showLogin() {
       const step = await login(f.usuario.value.trim(), f.clave.value);
       await load();
       if (step === 'password') { state.gate = viewPassword; viewPassword(true); } else enter();
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      btn.disabled = false;
+    }
+  };
+}
+
+function forgotDialog(usuario) {
+  const s = modal(`<h3>Contraseña olvidada</h3>
+    <form id="fgf">
+      <p class="small" style="margin-top:0">Escribe tu usuario de Séneca. Te llegará un correo con un enlace para elegir una contraseña nueva.</p>
+      <label class="field"><span>Usuario</span><input type="text" name="usuario" value="${esc(usuario)}" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+      <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Enviar</button></div>
+    </form>`);
+  s.querySelector('[data-close]').onclick = closeModal;
+  s.querySelector('#fgf').onsubmit = async ev => {
+    ev.preventDefault();
+    const btn = ev.target.querySelector('.primary');
+    btn.disabled = true;
+    try {
+      await api('olvido', { usuario: ev.target.elements.usuario.value.trim() });
+      s.querySelector('#fgf').outerHTML = `<p>Si el usuario existe y tiene correo, en unos minutos te llegará un enlace. Caduca en 2 horas.</p>
+        <p class="muted small">Mira también en la carpeta de spam. Si no llega, pide a la administración un enlace nuevo.</p>
+        <div class="row end"><button class="btn primary" data-close>Vale</button></div>`;
+      s.querySelector('[data-close]').onclick = closeModal;
     } catch (e) {
       toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
       btn.disabled = false;
