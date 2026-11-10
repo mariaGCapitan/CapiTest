@@ -139,6 +139,8 @@ body.entrada .top-in { display: none; }
 .tabs a .ico { display: block; font-size: 1.3rem; line-height: 1.4; filter: grayscale(1); opacity: .7; }
 .tabs a.on { color: var(--brand); font-weight: 600; }
 .tabs a.on .ico { filter: none; opacity: 1; }
+/* El ❓ es rojo: al pasarlo a gris queda oscuro y en modo oscuro no se ve. Se aclara invirtiéndolo. */
+@media (prefers-color-scheme: dark) { .tabs a .ico.ayuda { filter: grayscale(1) invert(1); opacity: .6; } }
 
 main { max-width: 760px; margin: 0 auto; padding: 16px; }
 
