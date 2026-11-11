@@ -25,6 +25,7 @@ LOCK_SECONDS = 15 * 60
 MAX_FAILS = {'usuario': 8, 'ip': 30}
 USER_RE = re.compile(r'^[a-z0-9._-]{3,40}$')
 MAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+EDUCAAND_RE = re.compile(r'^[a-z0-9._-]+@g\.educaand\.es$')
 INVITE_DAYS = 7
 RESET_HOURS = 2
 
@@ -212,6 +213,47 @@ def create_app(database=None, secure=None, behind_proxy=None):
             threading.Thread(target=send, daemon=True).start()
         elif usuario:
             db.log(con(), usuario, 'pide cambiar la contraseña (sin cuenta o sin correo)', ip)
+        return jsonify(ok=True)
+
+    # Registrarme: un profe nuevo pide acceso. Se avisa por correo a la cuenta que envía los correos
+    # (la de /etc/capitest/correo.env); la cuenta se crea a mano en «Gestionar profesorado».
+    @app.post('/api/registro')
+    def register():
+        cfg = correo.config()
+        if not cfg:
+            return error('Este servidor no puede enviar correos. Pide el acceso a la administración de CapiTest.', 503)
+        d = body()
+        nombre = ' '.join(str(d.get('nombre', '')).split())[:80]
+        mail = str(d.get('correo', '')).strip().lower()[:120]
+        if len(nombre) < 3:
+            return error('Escribe tu nombre y apellidos')
+        if not EDUCAAND_RE.match(mail):
+            return error('Escribe tu correo de la Junta, que termina en @g.educaand.es')
+        ip = request.remote_addr or ''
+        keys = [('usuario', f'registro:{mail}'), ('ip', f'registro-ip:{ip}')]
+        if blocked(keys):
+            return error('Demasiadas peticiones. Espera 15 minutos.', 429)
+        add_fail(keys)
+        usuario = mail.split('@')[0]
+        ya = con().execute('SELECT usuario FROM usuarios WHERE usuario = ? OR lower(correo) = ?',
+                           (usuario, mail)).fetchone()
+        db.log(con(), usuario, 'pide acceso (registrarme)', ip)
+        texto = (f"{nombre} pide entrar en CapiTest.\n\n"
+                 f"Correo: {mail}\n"
+                 f"Usuario de Séneca (sale del correo, compruébalo): {usuario}\n\n"
+                 + (f"Ojo: ya existe una cuenta con ese usuario o correo ({ya['usuario']}).\n\n" if ya else '')
+                 + f"Para darle acceso, entra en {cfg['url']} con la cuenta de administración, "
+                 "ve a «Gestionar profesorado» y crea la cuenta con ese usuario y ese correo. "
+                 "Le llegará un enlace para elegir su contraseña.\n\n"
+                 "Si no conoces a esta persona, no hagas nada.")
+
+        def send():
+            try:
+                correo.enviar(cfg['usuario'], f'CapiTest: {nombre} pide acceso', texto, cfg)
+            except Exception as e:  # noqa: BLE001 — se apunta en el registro del servicio
+                app.logger.error('No se ha podido enviar el aviso de registro: %s', e)
+
+        threading.Thread(target=send, daemon=True).start()
         return jsonify(ok=True)
 
     @app.post('/api/login')

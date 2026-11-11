@@ -1434,9 +1434,10 @@ function showLogin() {
       <button class="btn primary block">Entrar</button>
     </form>
     <p class="small" style="text-align:center;margin-top:16px"><a href="#" id="olvido">¿Has olvidado la contraseña?</a></p>
-    <p class="small" style="text-align:center"><a href="manual.html" target="_blank" rel="noopener">Manual de uso</a></p>`);
+    <p class="small" style="text-align:center"><a href="#" id="registro">Registrarme</a></p>`);
   document.body.classList.add('entrada');
   $('#olvido').onclick = e => { e.preventDefault(); forgotDialog($('#lf').elements.usuario.value.trim()); };
+  $('#registro').onclick = e => { e.preventDefault(); registerDialog(); };
   $('#lf').onsubmit = async ev => {
     ev.preventDefault();
     const f = ev.target.elements, btn = ev.target.querySelector('button');
@@ -1468,6 +1469,32 @@ function forgotDialog(usuario) {
       await api('olvido', { usuario: ev.target.elements.usuario.value.trim() });
       s.querySelector('#fgf').outerHTML = `<p>Si el usuario existe y tiene correo, en unos minutos te llegará un enlace. Caduca en 2 horas.</p>
         <p class="muted small">Mira también en la carpeta de spam. Si no llega, pide a la administración un enlace nuevo.</p>
+        <div class="row end"><button class="btn primary" data-close>Vale</button></div>`;
+      s.querySelector('[data-close]').onclick = closeModal;
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      btn.disabled = false;
+    }
+  };
+}
+
+function registerDialog() {
+  const s = modal(`<h3>Registrarme</h3>
+    <form id="rgf">
+      <p class="small" style="margin-top:0">La administración de CapiTest recibirá tu petición. Cuando te dé de alta, te llegará un correo con un enlace para elegir tu contraseña.</p>
+      <label class="field"><span>Nombre y apellidos</span><input type="text" name="nombre" autocomplete="name" minlength="3" maxlength="80" required></label>
+      <label class="field"><span>Correo de la Junta (@g.educaand.es)</span><input type="email" name="correo" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="usuario@g.educaand.es" required></label>
+      <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Enviar</button></div>
+    </form>`);
+  s.querySelector('[data-close]').onclick = closeModal;
+  s.querySelector('#rgf').onsubmit = async ev => {
+    ev.preventDefault();
+    const f = ev.target.elements, btn = ev.target.querySelector('.primary');
+    btn.disabled = true;
+    try {
+      await api('registro', { nombre: f.nombre.value.trim(), correo: f.correo.value.trim() });
+      s.querySelector('#rgf').outerHTML = `<p>Petición enviada. Cuando te den de alta, te llegará un correo a <b>${esc(f.correo.value.trim().toLowerCase())}</b> para elegir tu contraseña.</p>
+        <p class="muted small">Mira también en la carpeta de spam.</p>
         <div class="row end"><button class="btn primary" data-close>Vale</button></div>`;
       s.querySelector('[data-close]').onclick = closeModal;
     } catch (e) {

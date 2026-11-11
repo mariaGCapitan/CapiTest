@@ -312,5 +312,37 @@ class Olvido(Base):
             correo.config, correo.enviar = orig_cfg, orig_env
 
 
+class Registro(Base):
+    def test_sin_correo_configurado(self):
+        r = self.client().post('/api/registro', json={'nombre': 'Ana Pérez', 'correo': 'ana@g.educaand.es'}, headers=H)
+        self.assertEqual(r.status_code, 503)
+
+    def test_avisa_a_la_cuenta_de_correo(self):
+        import correo
+        enviados = []
+        cfg = {'usuario': 'capitest@gmail.com', 'clave': 'x', 'url': 'https://capitest/', 'servidor': 's', 'puerto': 587}
+        orig_cfg, orig_env = correo.config, correo.enviar
+        correo.config = lambda: cfg
+        correo.enviar = lambda destino, asunto, texto, c=None: enviados.append((destino, asunto, texto))
+        try:
+            c = self.client()
+            r = c.post('/api/registro', json={'nombre': 'Ana', 'correo': 'ana@gmail.com'}, headers=H)
+            self.assertEqual(r.status_code, 400)
+            r = c.post('/api/registro', json={'nombre': ' Ana   Pérez ', 'correo': 'APEREZ123@g.educaand.es'}, headers=H)
+            self.assertEqual(r.status_code, 200)
+            for _ in range(50):
+                if enviados:
+                    break
+                time.sleep(0.05)
+            self.assertEqual(len(enviados), 1)
+            destino, asunto, texto = enviados[0]
+            self.assertEqual(destino, 'capitest@gmail.com')
+            self.assertIn('Ana Pérez', asunto)
+            self.assertIn('aperez123@g.educaand.es', texto)
+            self.assertIn('aperez123\n', texto)
+        finally:
+            correo.config, correo.enviar = orig_cfg, orig_env
+
+
 if __name__ == '__main__':
     unittest.main()
