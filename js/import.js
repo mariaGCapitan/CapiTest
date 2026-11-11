@@ -68,10 +68,9 @@ async function parseMoodleXML(raw) {
         if (t === 'true') a.text = 'Verdadero';
         if (t === 'false') a.text = 'Falso';
       }
-    } else if (child(qn, 'single')?.textContent.trim() === 'false') {
-      warnings.push(`«${name}»: en Moodle admite varias respuestas; aquí solo cuenta como correcta la de más valor.`);
     }
-    const q = buildQuestion(name, parts, answers, warnings);
+    const multiple = type !== 'truefalse' && child(qn, 'single')?.textContent.trim() === 'false';
+    const q = buildQuestion(name, parts, answers, warnings, multiple);
     if (q) questions.push(q);
   }
   return { questions, open: openQs, warnings, title: category };
@@ -155,7 +154,6 @@ async function parseGIFT(raw) {
       }
       if (!items.some(a => a.wrong)) { addOpen(openQs, name, await toParts(), 'de respuesta corta', warnings); continue; }
       answers = items.map(a => ({ text: a.text, fraction: a.fraction }));
-      if (answers.filter(a => a.fraction > 0).length > 1) warnings.push(`«${name}»: tiene varias respuestas con valor; solo cuenta como correcta la de más valor.`);
     }
 
     let parts;
@@ -169,7 +167,7 @@ async function parseGIFT(raw) {
       const code = format === 'markdown' ? t.match(/^`([^`]*)`$/) : null;
       return { text: code ? code[1] : t, isCode: !!code, fraction: a.fraction };
     });
-    const q = buildQuestion(name, parts, fixed, warnings);
+    const q = buildQuestion(name, parts, fixed, warnings, fixed.filter(a => a.fraction > 0).length > 1);
     if (q) questions.push(q);
   }
   return { questions, open: openQs, warnings, title };
@@ -292,14 +290,21 @@ async function toPrintable(dataUrl) {
   }
 }
 
-function buildQuestion(name, parts, answers, warnings) {
+// multiple: varias respuestas correctas (las de valor positivo), que puntúan como en Moodle.
+function buildQuestion(name, parts, answers, warnings, multiple = false) {
   if (answers.length < 2) { warnings.push(`«${name}»: tiene menos de dos respuestas. No se importa.`); return null; }
   if (answers.length > MAX_OPTS) { warnings.push(`«${name}»: tiene ${answers.length} respuestas y caben como máximo ${MAX_OPTS}. No se importa.`); return null; }
   if (!parts.text && !parts.code && !parts.image) { warnings.push(`«${name}»: no tiene enunciado. No se importa.`); return null; }
   let correct = 0;
   answers.forEach((a, i) => { if (a.fraction > answers[correct].fraction) correct = i; });
   if (!(answers[correct].fraction > 0)) { warnings.push(`«${name}»: ninguna respuesta está marcada como correcta. No se importa.`); return null; }
+  const multi = answers.map((a, i) => (a.fraction > 0 ? i : -1)).filter(i => i >= 0);
+  if (multiple && multi.length === answers.length) {
+    warnings.push(`«${name}»: todas las respuestas son correctas; aquí solo cuenta la de más valor.`);
+  }
+  const useMulti = multiple && multi.length > 1 && multi.length < answers.length;
   return {
+    ...(useMulti ? { multi } : {}),
     id: uid(6),
     name,
     text: parts.text,
@@ -307,7 +312,7 @@ function buildQuestion(name, parts, answers, warnings) {
     image: parts.image || null,
     options: answers.map(a => ({ text: a.text })),
     optsCode: answers.every(a => a.isCode),
-    correct,
+    correct: useMulti ? multi[0] : correct,
   };
 }
 

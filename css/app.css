@@ -239,6 +239,7 @@ img.logo { display: block; max-height: 56px; max-width: 100%; margin: 6px 0 8px;
 .chip b { display: block; font-size: .72rem; color: var(--muted); font-weight: 600; }
 .chip.ok { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
 .chip.bad { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
+.chip.part { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
 .chip.blank { color: var(--muted); }
 .chip.doubt { outline: 3px solid var(--warn); outline-offset: -1px; }
 .chip.off { opacity: .45; }

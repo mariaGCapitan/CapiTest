@@ -6,7 +6,7 @@ import {
 import { maxQuestions, LAYOUT } from './layout.js';
 import { importExamFile, MAX_OPTS, OPEN_LINES } from './import.js';
 import { buildPrint, examPDF, parseQR } from './pdf.js';
-import { grade, summary, questionStats, versionFor, nopt, testPoints } from './grading.js';
+import { grade, summary, questionStats, versionFor, nopt, testPoints, multiOf, qScore } from './grading.js';
 import { readBubbles, drawReading, MARKED, DOUBT } from './omr.js';
 import { Scanner, analyzeFile } from './scan.js';
 import { examExcel } from './excel.js';
@@ -475,7 +475,7 @@ function openInputs(container, exam, scores, onChange) {
   }));
 }
 
-const gradeText = (exam, gr) => `${gr.c} bien · ${gr.w} mal · ${gr.b} en blanco` + (exam.open?.length
+const gradeText = (exam, gr) => `${gr.c} bien · ${gr.p ? `${gr.p} en parte · ` : ''}${gr.w} mal · ${gr.b} en blanco` + (exam.open?.length
   ? ` · test ${fmtNum(gr.test)} + a mano ${fmtNum(gr.manual)}${gr.pending ? ` (faltan ${gr.pending})` : ''}` : '');
 
 function importDialog(exam) {
@@ -512,7 +512,8 @@ function printState(exam, group) {
   if (p.layout !== LAYOUT) return 'layout';
   const qids = exam.questions.map(q => q.id);
   const same = p.nopt === nopt(exam) && p.qids.length === qids.length && qids.every(id => p.qids.includes(id))
-    && exam.questions.every(q => p.nopts?.[q.id] === q.options.length);
+    && exam.questions.every(q => p.nopts?.[q.id] === q.options.length)
+    && exam.questions.every(q => !!multiOf(q) === (p.multis || []).includes(q.id));
   if (!same) return 'stale';
   if ((group?.students || []).some(s => !p.sheets[s.id])) return 'partial';
   return 'ok';
@@ -553,7 +554,7 @@ function tabQuestions(exam, el) {
       <div class="num">${i + 1}</div>
       <a class="body" href="#/examen/${exam.id}/pregunta/${q.id}" style="color:inherit;text-decoration:none">
         <div class="txt">${esc(q.text || q.code)}</div>
-        <span class="badge ok">✓ ${LETTERS[q.correct]}</span>
+        <span class="badge ok">✓ ${keyLetters(q)}</span>${multiOf(q) ? '<span class="badge">varias respuestas</span>' : ''}
         <span class="badge">${q.options.length} opciones</span>
         ${q.code ? '<span class="badge">código</span>' : ''}${q.image ? '<span class="badge">imagen</span>' : ''}
         ${q.annulled ? '<span class="badge bad">anulada</span>' : ''}
@@ -630,6 +631,7 @@ function viewQuestion(examId, qid) {
   const num = isNew ? exam.questions.length + 1 : exam.questions.indexOf(orig) + 1;
   setNav('examenes');
   setHeader(`Pregunta ${num}`, `#/examen/${examId}/preguntas`);
+  let multi = !!q.multi;
 
   const render = () => {
     main().innerHTML = `<form id="qf">
@@ -639,9 +641,10 @@ function viewQuestion(examId, qid) {
         ${q.image ? `<img class="imgprev" src="${q.image.data}" alt="Imagen de la pregunta"><button type="button" class="btn small danger" id="rmimg">Quitar imagen</button>`
           : `<input type="file" accept="image/*" id="img">`}
       </div>
-      <h2 class="section">Respuestas · marca la correcta</h2>
+      <h2 class="section">Respuestas · ${multi ? 'marca todas las correctas' : 'marca la correcta'}</h2>
+      <label class="check"><input type="checkbox" id="multi" ${multi ? 'checked' : ''}><span>Varias respuestas correctas (puntúa como Moodle: cada correcta suma su parte, cada incorrecta resta la suya y la pregunta no baja de 0)</span></label>
       ${q.options.map((o, i) => `<div class="opt">
-          <input type="radio" name="correct" value="${i}" ${q.correct === i ? 'checked' : ''} aria-label="Correcta ${LETTERS[i]}">
+          <input type="${multi ? 'checkbox' : 'radio'}" name="correct" value="${i}" ${(multi ? (q.multi || []).includes(i) : q.correct === i) ? 'checked' : ''} aria-label="Correcta ${LETTERS[i]}">
           <span class="letter">${LETTERS[i]}</span>
           <textarea name="opt${i}" rows="1" class="${q.optsCode ? 'code' : ''}">${esc(o.text)}</textarea>
           ${q.options.length > 2 ? `<button type="button" class="iconbtn" data-rm="${i}" aria-label="Quitar">✕</button>` : ''}
@@ -661,7 +664,13 @@ function viewQuestion(examId, qid) {
       q.text = f.text.value.trim();
       q.code = f.code.value.replace(/\s+$/, '');
       q.options.forEach((o, i) => { o.text = f['opt' + i].value.trim(); });
-      q.correct = +(f.correct.value || 0);
+      if (multi) {
+        q.multi = $$('input[name=correct]', f).filter(x => x.checked).map(x => +x.value);
+        q.correct = q.multi[0] ?? 0;
+      } else {
+        q.correct = +(f.correct.value || 0);
+        delete q.multi;
+      }
       q.optsCode = f.optsCode.checked;
       if (f.annulled) q.annulled = f.annulled.checked;
     };
@@ -672,11 +681,18 @@ function viewQuestion(examId, qid) {
     });
     if ($('#rmimg')) $('#rmimg').onclick = () => { collect(); q.image = null; render(); };
     if ($('#addopt')) $('#addopt').onclick = () => { collect(); q.options.push({ text: '' }); render(); };
+    $('#multi').onchange = e => {
+      collect();
+      multi = e.target.checked;
+      if (multi) q.multi = [q.correct]; else { q.correct = q.multi?.[0] ?? 0; delete q.multi; }
+      render();
+    };
     $$('[data-rm]').forEach(b => (b.onclick = () => {
       collect();
       const i = +b.dataset.rm;
       q.options.splice(i, 1);
       if (q.correct === i) q.correct = 0; else if (q.correct > i) q.correct--;
+      if (q.multi) q.multi = q.multi.filter(x => x !== i).map(x => (x > i ? x - 1 : x));
       render();
     }));
     if ($('#del')) $('#del').onclick = async () => {
@@ -690,6 +706,8 @@ function viewQuestion(examId, qid) {
       collect();
       if (!q.text && !q.code && !q.image) return toast('La pregunta necesita enunciado, código o imagen.');
       if (q.options.some(o => !o.text)) return toast('Rellena todas las respuestas o quita las que sobren.');
+      if (multi && q.multi.length < 2) return toast('Marca al menos dos respuestas correctas, o quita «Varias respuestas correctas».');
+      if (multi && q.multi.length === q.options.length) return toast('Al menos una respuesta tiene que ser incorrecta.');
       const at = exam.questions.findIndex(x => x.id === q.id);
       if (at < 0) exam.questions.push(q); else exam.questions[at] = q;
       await saveExam(exam);
@@ -765,14 +783,22 @@ function showPdfOut() {
 
 /* ---------- Corregir ---------- */
 
+const keyLetters = q => (multiOf(q) || [q.correct]).map(i => LETTERS[i]).join(', ');
+
 // Lo leído en la hoja, en el orden impreso: índice impreso, null o 'M'.
-function fillsToPrinted(v, fills) {
+// En las preguntas de varias respuestas, la lista de índices impresos marcados.
+function fillsToPrinted(exam, v, fills) {
   return v.order.map((qid, i) => {
     const n = v.perm[qid].length;
     const f = fills[i] || [];
     const marked = [];
     f.forEach((x, j) => { if (x >= MARKED) marked.push(j); });
-    const doubt = marked.length > 1 || f.some(x => x >= DOUBT && x < MARKED);
+    const half = f.some(x => x >= DOUBT && x < MARKED);
+    if (multiOf(exam.questions.find(q => q.id === qid) || {})) {
+      const m = marked.filter(j => j < n);
+      return { qid, p: m.length ? m : null, doubt: half };
+    }
+    const doubt = marked.length > 1 || half;
     let p = null;
     if (marked.length === 1 && marked[0] < n) p = marked[0];
     else if (marked.length) p = 'M';
@@ -780,34 +806,56 @@ function fillsToPrinted(v, fills) {
   });
 }
 const printedToAnswers = (v, printed) => Object.fromEntries(printed.map(({ qid, p }) =>
-  [qid, p === null || p === 'M' ? p : v.perm[qid][p]]));
+  [qid, Array.isArray(p) ? (p.length ? p.map(j => v.perm[qid][j]).sort((a, b) => a - b) : null)
+    : p === null || p === 'M' ? p : v.perm[qid][p]]));
 const answersToPrinted = (v, answers) => v.order.map(qid => {
   const a = answers[qid];
+  if (Array.isArray(a)) return { qid, p: a.map(i => v.perm[qid].indexOf(i)).sort((x, y) => x - y), doubt: false };
   return { qid, p: a === null || a === undefined ? null : a === 'M' ? 'M' : v.perm[qid].indexOf(a), doubt: false };
 });
 
 // Rejilla de respuestas en el orden en que las vio el alumno o alumna; se toca para corregir.
 function answerGrid(container, exam, v, printed, onChange) {
+  let pick = null; // pregunta de varias respuestas que se está corrigiendo (índice en la hoja)
   const draw = () => {
     container.innerHTML = `<div class="grid">${printed.map((x, i) => {
       const q = exam.questions.find(qq => qq.id === x.qid);
       if (!q) return '';
-      const orig = x.p === null || x.p === 'M' ? x.p : v.perm[x.qid][x.p];
-      const cls = q.annulled ? 'off' : orig === null || orig === 'M' ? 'blank' : orig === q.correct ? 'ok' : 'bad';
-      const txt = x.p === null ? '–' : x.p === 'M' ? 'Varias' : LETTERS[x.p];
+      const orig = printedToAnswers(v, [x])[x.qid];
+      const sc = qScore(q, orig);
+      const cls = q.annulled ? 'off' : sc.kind === 'b' ? 'blank' : sc.kind === 'c' ? 'ok' : sc.pts > 0 ? 'part' : 'bad';
+      const txt = x.p === null ? '–' : x.p === 'M' ? 'Varias' : Array.isArray(x.p) ? x.p.map(j => LETTERS[j]).join('') : LETTERS[x.p];
       return `<button type="button" class="chip ${cls} ${x.doubt || x.p === 'M' ? 'doubt' : ''}" data-i="${i}"><b>${i + 1}</b>${txt}</button>`;
     }).join('')}</div>
-    <div class="legend"><span><i style="background:var(--ok)"></i>Bien</span><span><i style="background:var(--bad)"></i>Mal</span>
+    ${pick === null ? '' : `<div class="banner info"><b>Pregunta ${pick + 1}: marca lo que tiene la hoja</b> (puede haber varias)
+      <div class="row">${Array.from({ length: v.perm[printed[pick].qid].length }, (_, j) => `<label class="check"><input type="checkbox" data-m="${j}" ${(Array.isArray(printed[pick].p) ? printed[pick].p : []).includes(j) ? 'checked' : ''}><span>${LETTERS[j]}</span></label>`).join('')}
+      <button type="button" class="btn small" id="mdone">Hecho</button></div></div>`}
+    <div class="legend"><span><i style="background:var(--ok)"></i>Bien</span>${exam.questions.some(multiOf) ? '<span><i style="background:var(--warn)"></i>En parte</span>' : ''}<span><i style="background:var(--bad)"></i>Mal</span>
       <span><i style="background:var(--blank)"></i>En blanco</span><span><i style="background:var(--warn)"></i>Dudosa: compruébala</span></div>
     <p class="muted small">Toca una pregunta para cambiar la respuesta leída.</p>`;
     $$('.chip', container).forEach(b => (b.onclick = () => {
       const x = printed[+b.dataset.i];
       const n = v.perm[x.qid].length;
+      if (multiOf(exam.questions.find(q => q.id === x.qid) || {})) {
+        // Varias respuestas: debajo de la rejilla salen las casillas para marcar lo que tiene la hoja.
+        pick = pick === +b.dataset.i ? null : +b.dataset.i;
+        draw();
+        return;
+      }
       x.p = x.p === null ? 0 : x.p === 'M' ? null : x.p + 1 >= n ? null : x.p + 1;
       x.doubt = false;
       draw();
       onChange();
     }));
+    $$('[data-m]', container).forEach(c => (c.onchange = () => {
+      const x = printed[pick];
+      const m = $$('[data-m]', container).filter(k => k.checked).map(k => +k.dataset.m);
+      x.p = m.length ? m : null;
+      x.doubt = false;
+      draw();
+      onChange();
+    }));
+    if ($('#mdone', container)) $('#mdone', container).onclick = () => { pick = null; draw(); };
   };
   draw();
 }
@@ -885,7 +933,7 @@ function handleScan(exam, an) {
   const nq = exam.printed.qids.length, n = exam.printed.nopt;
   const fills = readBubbles(an, nq, n);
   drawReading(an, nq, n, fills);
-  const printed = fillsToPrinted(v, fills);
+  const printed = fillsToPrinted(exam, v, fills);
   resultCard(exam, v, info.sheetId, printed, an.c.toDataURL('image/jpeg', 0.75));
 }
 
@@ -960,12 +1008,12 @@ function tabGrades(exam, el) {
       <button class="btn grow" id="xdl">Descargar Excel</button>
     </div>
     <table class="list">
-      <thead><tr><th>Alumno/a</th><th class="num">Nota</th><th class="num">✓ ✗ –</th></tr></thead>
+      <thead><tr><th>Alumno/a</th><th class="num">Nota</th><th class="num">✓ ${exam.questions.some(multiOf) ? '½ ' : ''}✗ –</th></tr></thead>
       <tbody>${students.map(s => {
         const r = exam.results[s.id];
         if (!r) return `<tr data-sid="${s.id}"><td>${esc(s.name)}</td><td class="num muted">—</td><td class="num muted small">sin corregir</td></tr>`;
         const gr = grade(exam, r.answers, r.open);
-        return `<tr data-sid="${s.id}"><td>${esc(s.name)}</td><td class="num" style="font-weight:700;color:var(${gr.nota >= 5 ? '--ok' : '--bad'})">${fmtNota(gr.nota)}</td><td class="num small">${gr.c} ${gr.w} ${gr.b}${gr.pending ? `<br><span style="color:var(--warn)">falta${gr.pending > 1 ? 'n' : ''} ${gr.pending} a mano</span>` : ''}</td></tr>`;
+        return `<tr data-sid="${s.id}"><td>${esc(s.name)}</td><td class="num" style="font-weight:700;color:var(${gr.nota >= 5 ? '--ok' : '--bad'})">${fmtNota(gr.nota)}</td><td class="num small">${gr.c} ${exam.questions.some(multiOf) ? gr.p + ' ' : ''}${gr.w} ${gr.b}${gr.pending ? `<br><span style="color:var(--warn)">falta${gr.pending > 1 ? 'n' : ''} ${gr.pending} a mano</span>` : ''}</td></tr>`;
       }).join('')}</tbody>
     </table>
     <h2 class="section">Preguntas</h2>
@@ -974,7 +1022,7 @@ function tabGrades(exam, el) {
       <div class="row"><b>P${i + 1}</b><span class="grow small" style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${esc(s.q.text || s.q.code)}</span>
         <button class="btn small" data-annul="${s.q.id}">${s.q.annulled ? 'Recuperar' : 'Anular'}</button></div>
       <div class="bar ${s.pct < 0.3 ? 'low' : s.pct < 0.5 ? 'mid' : ''}" style="margin:8px 0 4px"><i style="width:${Math.round(s.pct * 100)}%"></i></div>
-      <div class="muted small">${s.n ? Math.round(s.pct * 100) + ' % aciertos · ' : ''}correcta ${LETTERS[s.q.correct]} · ${s.q.options.map((_, j) => `${LETTERS[j]}: ${s.counts[j] || 0}`).join(' · ')} · blanco: ${s.blank}</div>
+      <div class="muted small">${s.n ? Math.round(s.pct * 100) + ' % aciertos · ' : ''}correcta ${keyLetters(s.q)} · ${s.q.options.map((_, j) => `${LETTERS[j]}: ${s.counts[j] || 0}`).join(' · ')} · blanco: ${s.blank}</div>
     </div>`).join('')}`;
   const xl = () => examExcel(exam, g);
   if ($('#xshare')) $('#xshare').onclick = () => { const x = xl(); shareFile(x.blob, x.filename, exam.title); };

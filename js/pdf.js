@@ -26,7 +26,9 @@ export function buildPrint(exam, group, reserves) {
   };
   for (const s of group?.students || []) make(s.id, s.id);
   for (let i = 1; i <= reserves; i++) make('R' + i, null);
-  return { at: Date.now(), layout: LAYOUT, batch, nopt, qids, nopts, sheets, reserves, changed: !!prev && !reusable };
+  // Preguntas impresas con «Varias respuestas correctas»: si cambian, hay que volver a imprimir.
+  const multis = exam.questions.filter(q => q.multi?.length > 1).map(q => q.id);
+  return { at: Date.now(), layout: LAYOUT, batch, nopt, qids, nopts, multis, sheets, reserves, changed: !!prev && !reusable };
 }
 
 // Verdadero/Falso no se baraja, y «Ninguna/Todas las anteriores» se quedan en su sitio.
@@ -141,8 +143,11 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(60);
+  const anyMulti = exam.questions.some(q => q.multi?.length > 1);
   const inst = 'Rellena por completo el círculo de la respuesta elegida con bolígrafo negro o azul oscuro. '
-    + 'Marca una sola respuesta por pregunta; si marcas dos, la pregunta cuenta como en blanco. '
+    + (anyMulti
+      ? 'Marca una sola respuesta por pregunta, salvo en las que dicen «Varias respuestas correctas»: en esas marca todas las correctas; cada una suma su parte y cada incorrecta resta. Si marcas dos en una de respuesta única, cuenta como en blanco. '
+      : 'Marca una sola respuesta por pregunta; si marcas dos, la pregunta cuenta como en blanco. ')
     + 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados de las esquinas. '
     + penaltyText(exam.penalty);
   doc.text(doc.splitTextToSize(pdfText(inst), 166), L, 64);
@@ -370,6 +375,10 @@ function renderQuestion(doc, q, num, perm, x, y0, W, draw) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(FS_Q);
   if (draw) doc.text(`${num}.`, x, y + lh * 0.8);
+  if (q.multi?.length > 1) {
+    if (draw) doc.text(pdfText('Varias respuestas correctas'), x + indent, y + lh * 0.8);
+    y += lh;
+  }
   doc.setFont('helvetica', 'normal');
   if (q.text) {
     const lines = doc.splitTextToSize(pdfText(q.text), W - indent);

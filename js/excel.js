@@ -1,6 +1,6 @@
 // Excel con las notas, las respuestas y el análisis de cada pregunta.
 
-import { grade, questionStats, testPoints } from './grading.js';
+import { grade, questionStats, testPoints, multiOf } from './grading.js';
 import { LETTERS, fmtNum, safeName } from './util.js';
 
 export function examExcel(exam, group) {
@@ -14,18 +14,20 @@ export function examExcel(exam, group) {
   const N = exam.questions.length;
   const r2 = x => Math.round(x * 100) / 100;
   const extra = open.length ? [`Test (sobre ${fmtNum(testPoints(exam))})`, ...open.map((q, i) => `P${N + i + 1} (sobre ${fmtNum(q.points)})`), 'Falta nota a mano'] : [];
-  const notas = [['Alumno/a', 'Nota', ...extra, 'Aciertos', 'Errores', 'En blanco', 'Hoja']];
+  const anyMulti = exam.questions.some(multiOf);
+  const notas = [['Alumno/a', 'Nota', ...extra, 'Aciertos', ...(anyMulti ? ['En parte'] : []), 'Errores', 'En blanco', 'Hoja']];
   for (const s of students) {
     const r = results[s.id];
-    if (!r) { notas.push([s.name, 'Sin corregir', ...extra.map(() => ''), '', '', '', '']); continue; }
+    if (!r) { notas.push([s.name, 'Sin corregir', ...extra.map(() => ''), ...(anyMulti ? [''] : []), '', '', '', '']); continue; }
     const g = grade(exam, r.answers, r.open);
     const byHand = open.length ? [r2(g.test), ...open.map(q => (typeof r.open?.[q.id] === 'number' ? r.open[q.id] : '')), g.pending ? `${g.pending} pregunta(s)` : ''] : [];
-    notas.push([s.name, r2(g.nota), ...byHand, g.c, g.w, g.b, r.sheetId.startsWith('R') ? `Reserva ${r.sheetId}` : 'Personal']);
+    notas.push([s.name, r2(g.nota), ...byHand, g.c, ...(anyMulti ? [g.p] : []), g.w, g.b, r.sheetId.startsWith('R') ? `Reserva ${r.sheetId}` : 'Personal']);
   }
 
   const qs = exam.questions;
-  const letter = (q, a) => (a === null || a === undefined ? '' : a === 'M' ? 'Varias' : LETTERS[a]);
-  const resp = [['Alumno/a', ...qs.map((_, i) => `P${i + 1}`)], ['CLAVE', ...qs.map(q => (q.annulled ? 'Anulada' : LETTERS[q.correct]))]];
+  const key = q => (multiOf(q) || [q.correct]).map(i => LETTERS[i]).join('');
+  const letter = (q, a) => (a === null || a === undefined ? '' : a === 'M' ? 'Varias' : Array.isArray(a) ? a.map(i => LETTERS[i]).join('') : LETTERS[a]);
+  const resp = [['Alumno/a', ...qs.map((_, i) => `P${i + 1}`)], ['CLAVE', ...qs.map(q => (q.annulled ? 'Anulada' : key(q)))]];
   for (const s of students) {
     const r = results[s.id];
     if (r) resp.push([s.name, ...qs.map(q => letter(q, r.answers[q.id]))]);
@@ -36,7 +38,7 @@ export function examExcel(exam, group) {
   for (const [i, st] of questionStats(exam).entries()) {
     const pc = x => (st.n ? Math.round(x / st.n * 1000) / 10 : '');
     const enun = (st.q.text || st.q.code || '').replace(/\s+/g, ' ').slice(0, 120);
-    preg.push([i + 1, enun, LETTERS[st.q.correct], pc(st.ok), pc(st.wrong), pc(st.blank),
+    preg.push([i + 1, enun, key(st.q), pc(st.ok), pc(st.wrong), pc(st.blank),
       ...LETTERS.slice(0, nmax).split('').map((_, j) => (j < st.q.options.length ? st.counts[j] : '')), st.q.annulled ? 'Sí' : '']);
   }
 
