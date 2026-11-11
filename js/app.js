@@ -242,6 +242,7 @@ async function deleteExam(exam) {
   await db.del('exams', exam.id);
   state.exams = state.exams.filter(x => x.id !== exam.id);
   await queue('exam', exam.id, null, Date.now(), true);
+  toast(`Examen «${exam.title}» borrado`);
   return true;
 }
 
@@ -319,7 +320,8 @@ function examForm(exam) {
     if (imported) { target.questions = imported.questions; target.open = imported.open; }
     await saveExam(target);
     closeModal();
-    if (exam) { route(); return; }
+    if (exam) { toast('Datos del examen guardados'); route(); return; }
+    if (!imported) toast(`Examen «${title}» creado`);
     location.hash = `#/examen/${target.id}`;
     if (imported) setTimeout(() => importSummary(imported, target), 50);
   };
@@ -427,6 +429,7 @@ function pointsDialog(exam, done = route) {
     exam.testPoints = tp;
     for (const q of open) q.points = pts[q.id];
     await saveExam(exam);
+    toast('Reparto de la nota guardado');
     closeModal();
     done();
   };
@@ -476,6 +479,7 @@ function viewOpen(examId, qid) {
       if (!confirm('¿Borrar esta pregunta? Habrá que repartir de nuevo la nota.')) return;
       exam.open = exam.open.filter(x => x.id !== q.id);
       await saveExam(exam);
+      toast('Pregunta borrada');
       location.hash = `#/examen/${examId}/preguntas`;
     };
     f.onsubmit = async ev => {
@@ -485,6 +489,7 @@ function viewOpen(examId, qid) {
       const at = exam.open.findIndex(x => x.id === q.id);
       if (at < 0) exam.open.push(q); else exam.open[at] = q;
       await saveExam(exam);
+      toast(at < 0 ? 'Pregunta añadida' : 'Pregunta guardada');
       location.hash = `#/examen/${examId}/preguntas`;
       if (!pointsOk(exam)) setTimeout(() => pointsDialog(exam), 50);
     };
@@ -639,6 +644,7 @@ function tabQuestions(exam, el) {
     if (!confirm(`¿Borrar la pregunta ${n + i + 1}? Habrá que repartir de nuevo la nota.`)) return;
     open.splice(i, 1);
     await saveExam(exam);
+    toast('Pregunta borrada');
     tabQuestions(exam, el);
   }));
   const move = async (i, d) => {
@@ -655,6 +661,7 @@ function tabQuestions(exam, el) {
     if (!confirm(`¿Borrar la pregunta ${i + 1}?${warn}`)) return;
     exam.questions.splice(i, 1);
     await saveExam(exam);
+    toast('Pregunta borrada');
     tabQuestions(exam, el);
   }));
 }
@@ -737,6 +744,7 @@ function viewQuestion(examId, qid) {
       if (!confirm('¿Borrar esta pregunta?')) return;
       exam.questions = exam.questions.filter(x => x.id !== q.id);
       await saveExam(exam);
+      toast('Pregunta borrada');
       location.hash = `#/examen/${examId}/preguntas`;
     };
     f.onsubmit = async ev => {
@@ -749,6 +757,7 @@ function viewQuestion(examId, qid) {
       const at = exam.questions.findIndex(x => x.id === q.id);
       if (at < 0) exam.questions.push(q); else exam.questions[at] = q;
       await saveExam(exam);
+      toast(at < 0 ? 'Pregunta añadida' : 'Pregunta guardada');
       location.hash = `#/examen/${examId}/preguntas`;
     };
   };
@@ -1107,12 +1116,14 @@ function studentDetail(exam, sid, name, done) {
     if (!confirm('¿Borrar la nota de esta persona?')) return;
     delete exam.results[sid];
     await saveResult(exam, sid);
+    toast('Nota borrada');
     closeModal();
     done();
   };
   s.querySelector('#ok').onclick = async () => {
     exam.results[sid] = { sheetId: r?.sheetId || v.sheetId || sid, answers: printedToAnswers(v, printed), open: scores, at: Date.now(), name, manual: true };
     await saveResult(exam, sid);
+    toast(`Nota guardada: ${name}`);
     closeModal();
     done();
   };
@@ -1179,6 +1190,7 @@ function viewGroup(id) {
     if (!confirm(`¿Quitar a ${s.name} del grupo? Sus notas ya guardadas se conservan.`)) return;
     g.students = g.students.filter(x => x !== s);
     await saveGroup(g);
+    toast(`${s.name} quitado del grupo`);
     viewGroup(id);
   }));
   $$('[data-rn]').forEach(b => (b.onclick = async () => {
@@ -1203,6 +1215,7 @@ function viewGroup(id) {
     await db.del('groups', g.id);
     state.groups = state.groups.filter(x => x.id !== g.id);
     await queue('group', g.id, null, Date.now(), true);
+    toast(`Grupo «${g.name}» borrado`);
     location.hash = '#/grupos';
   };
 }
@@ -1441,6 +1454,7 @@ function viewSettings() {
     if (prompt('Escribe BORRAR para confirmar') !== 'BORRAR') return;
     await db.clearAll();
     await load();
+    toast('Datos de este dispositivo borrados');
     location.hash = '#/';
   };
 }
@@ -1825,7 +1839,7 @@ async function viewUsers() {
       try {
         await api(`usuarios/${u.id}/borrar`, { usuario: sure.value });
         closeModal();
-        toast(`${u.nombre} borrado.`);
+        toast(`${u.nombre} borrado`);
         viewUsers();
       } catch (e) { toast(e.message); }
     };
