@@ -192,6 +192,7 @@ input[type=text], input[type=number], input[type=email], input[type=password], s
 textarea { resize: vertical; min-height: 44px; }
 textarea.code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .88rem; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: -1px; }
+input.mal, input.mal:focus { border-color: var(--bad); outline: 2px solid var(--bad); outline-offset: -1px; background: var(--bad-soft); }
 .check { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
 .check input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--brand); }
 

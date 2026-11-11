@@ -360,6 +360,7 @@ function pointsDialog(exam, done = route) {
       ${open.map((q, i) => `<label class="field"><span>Pregunta ${N + i + 1}: ${esc(shortText(q))}</span>
         <input type="text" inputmode="decimal" data-pt="${q.id}" value="${q.points ? fmtNum(q.points) : ''}" required></label>`).join('')}
       <p class="small" id="ptsum" style="font-weight:600"></p>
+      <button type="button" class="btn small" id="ptfair">Repartir a partes iguales (${N + open.length} preguntas)</button>
       <div class="row end"><button type="button" class="btn" data-close>Más tarde</button><button class="btn primary">Guardar</button></div>
     </form>`);
   const f = s.querySelector('#ptf');
@@ -369,22 +370,59 @@ function pointsDialog(exam, done = route) {
     const total = tp + Object.values(pts).reduce((a, b) => a + b, 0);
     return { tp, pts, total };
   };
+  // Marca en rojo cada casilla con un valor que no vale y dice cuál es. Devuelve los fallos.
+  const check = () => {
+    const bad = [];
+    const tpv = parseNum(f.tp.value);
+    const tpBad = f.tp.value.trim() !== '' && !(tpv >= 0 && tpv <= 10);
+    f.tp.classList.toggle('mal', tpBad);
+    if (tpBad) bad.push('el test tiene que valer entre 0 y 10');
+    s.querySelectorAll('[data-pt]').forEach((i, k) => {
+      const wrong = i.value.trim() !== '' && !(parseNum(i.value) > 0);
+      i.classList.toggle('mal', wrong);
+      if (wrong) bad.push(`la pregunta ${N + k + 1} tiene que valer más de 0`);
+    });
+    return bad;
+  };
   const show = () => {
+    const bad = check();
     const { total } = read();
     const el = s.querySelector('#ptsum');
+    if (bad.length) {
+      el.textContent = 'Revisa lo marcado en rojo: ' + bad.join('; ') + '.';
+      el.style.color = 'var(--bad)';
+      return;
+    }
     if (!Number.isFinite(total)) { el.textContent = ''; return; }
     const ok = Math.abs(total - 10) < 1e-6;
     el.textContent = ok ? 'Suman 10. Correcto.' : `Suman ${fmtNum(total)}: ${total < 10 ? 'faltan' : 'sobran'} ${fmtNum(Math.abs(10 - total))}.`;
     el.style.color = ok ? 'var(--ok)' : 'var(--bad)';
   };
+  // Todas las preguntas valen lo mismo: cada una a mano vale 10 / total (con dos decimales)
+  // y el test se lleva el resto, para que la suma sea exactamente 10.
+  const fair = () => {
+    const each = Math.round(10 / (N + open.length) * 100) / 100;
+    s.querySelectorAll('[data-pt]').forEach(i => { i.value = fmtNum(each); });
+    f.tp.value = fmtNum(10 - each * open.length);
+    show();
+  };
+  s.querySelector('#ptfair').onclick = fair;
   f.oninput = show;
-  show();
+  // La primera vez sale ya propuesto el reparto a partes iguales.
+  if (exam.testPoints == null && open.every(q => !q.points)) fair(); else show();
   s.querySelector('[data-close]').onclick = () => { closeModal(); done(); };
   f.onsubmit = async ev => {
     ev.preventDefault();
     const { tp, pts, total } = read();
-    if (!(tp >= 0 && tp <= 10)) return toast('El valor del test tiene que estar entre 0 y 10.');
-    if (Object.values(pts).some(v => !(v > 0))) return toast('Cada pregunta tiene que valer más de 0.');
+    // Las casillas vacías también cuentan como fallo al guardar.
+    f.tp.classList.toggle('mal', !(tp >= 0 && tp <= 10));
+    s.querySelectorAll('[data-pt]').forEach(i => i.classList.toggle('mal', !(parseNum(i.value) > 0)));
+    const first = s.querySelector('.mal');
+    if (first) {
+      first.focus();
+      show();
+      return toast(first === f.tp ? 'El test tiene que valer entre 0 y 10.' : 'La pregunta marcada en rojo tiene que valer más de 0.');
+    }
     if (Math.abs(total - 10) > 1e-6) return toast(`Suman ${fmtNum(total)} y tienen que sumar 10.`);
     exam.testPoints = tp;
     for (const q of open) q.points = pts[q.id];
