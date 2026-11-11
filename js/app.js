@@ -327,9 +327,14 @@ function examForm(exam) {
 
 function importSummary(res, exam = null) {
   const nOpen = res.open?.length || 0;
+  // Dos apartados: las preguntas que se corrigen a mano y lo que hay que revisar.
+  const HAND = '. Se imprime con espacio para responder y se corrige a mano.';
+  const hand = res.warnings.filter(w => w.endsWith(HAND)).map(w => w.slice(0, -HAND.length).replace(': es ', ': '));
+  const check = res.warnings.filter(w => !w.endsWith(HAND));
   const s = modal(`<h3>Examen importado</h3>
     <p><b>${res.questions.length}</b> preguntas de test importadas${nOpen ? ` y <b>${nOpen}</b> para corregir a mano` : ''}.</p>
-    ${res.warnings.length ? `<div class="banner warn"><b>Avisos (${res.warnings.length})</b><ul class="small">${res.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
+    ${hand.length ? `<div class="banner info"><b>Se corrigen a mano (${hand.length})</b><ul class="small">${hand.map(w => `<li>${esc(w)}</li>`).join('')}</ul><span class="small">Se imprimen con espacio para responder.</span></div>` : ''}
+    ${check.length ? `<div class="banner warn"><b>Revisa estas preguntas (${check.length})</b><ul class="small">${check.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
     <div class="row end"><button class="btn primary" data-close>${nOpen && exam ? 'Repartir la nota' : 'Vale'}</button></div>`);
   s.querySelector('[data-close]').onclick = () => {
     closeModal();
