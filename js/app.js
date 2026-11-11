@@ -1610,7 +1610,11 @@ ${url}
 
 El enlace caduca en 7 días y solo se puede usar una vez.`;
   const mail = `mailto:${encodeURIComponent(u.correo || '')}?subject=${encodeURIComponent('Tu cuenta de CapiTest')}&body=${encodeURIComponent(body)}`;
-  const s = modal(`<h3>Cuenta lista</h3>
+  const s = modal(u.enviado ? `<h3>Cuenta lista</h3>
+    <p>CapiTest ha enviado el correo a <b>${esc(u.correo)}</b> con el enlace para elegir la contraseña.</p>
+    <p class="muted small">Si no le llega, que mire en spam. También puedes copiar el enlace y dárselo tú; no se volverá a mostrar.</p>
+    <button class="btn block" id="copy">Copiar el enlace</button>
+    <div class="row end" style="margin-top:12px"><button class="btn primary" data-close>Hecho</button></div>` : `<h3>Cuenta lista</h3>
     <p>Envía el aviso a <b>${esc(u.correo || u.usuario)}</b>. El enlace no se volverá a mostrar.</p>
     <a class="btn primary block" id="mail" href="${esc(mail)}">Preparar el correo</a>
     <button class="btn block" style="margin-top:8px" id="copy">Copiar el enlace</button>

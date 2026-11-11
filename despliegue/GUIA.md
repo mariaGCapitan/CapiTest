@@ -54,7 +54,7 @@ El código tiene que estar antes en la rama `main` de GitHub, porque la máquina
    runuser -u capitest -- python3 /opt/capitest/server/gestionar.py --db /var/lib/capitest/capitest.db crear-admin USUARIO "Tu nombre"
    ```
 
-6. Pide que activen el subdominio y entra desde el navegador. Las demás cuentas se crean en **Tu cuenta › Gestionar profesorado**: CapiTest prepara un correo con un enlace de un solo uso, válido 7 días, para que cada profe elija su contraseña.
+6. Pide que activen el subdominio y entra desde el navegador. Las demás cuentas se crean en **Tu cuenta › Gestionar profesorado**: CapiTest envía un correo (si está configurado el correo; si no, lo prepara para enviarlo a mano) con un enlace de un solo uso, válido 7 días, para que cada profe elija su contraseña.
 
 El enlace de invitación usa la dirección desde la que tengas abierto CapiTest. Crea las cuentas desde el subdominio definitivo: un enlace hecho desde `https://IP_DE_LA_VM:8443` solo funciona dentro del centro.
 

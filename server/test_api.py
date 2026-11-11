@@ -344,5 +344,29 @@ class Registro(Base):
             correo.config, correo.enviar = orig_cfg, orig_env
 
 
+class InvitacionPorCorreo(Base):
+    def test_alta_envia_correo(self):
+        import correo
+        enviados = []
+        cfg = {'usuario': 'capitest@gmail.com', 'clave': 'x', 'url': 'https://capitest/', 'servidor': 's', 'puerto': 587}
+        orig_cfg, orig_env = correo.config, correo.enviar
+        correo.config = lambda: cfg
+        correo.enviar = lambda destino, asunto, texto, c=None: enviados.append((destino, texto))
+        try:
+            c = self.client('maria')
+            r = c.post('/api/usuarios', json={'nombre': 'Luis Gil', 'usuario': 'lgil123', 'correo': 'lgil123@g.educaand.es'}, headers=H)
+            self.assertEqual(r.status_code, 200)
+            self.assertTrue(r.get_json()['enviado'])
+            self.assertEqual(enviados[0][0], 'lgil123@g.educaand.es')
+            self.assertIn('https://capitest/#/invitacion/' + r.get_json()['token'], enviados[0][1])
+        finally:
+            correo.config, correo.enviar = orig_cfg, orig_env
+
+    def test_sin_correo_configurado_no_envia(self):
+        r = self.client('maria').post('/api/usuarios', json={'nombre': 'Luis Gil', 'usuario': 'lgil123', 'correo': 'l@x.es'}, headers=H)
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.get_json()['enviado'])
+
+
 if __name__ == '__main__':
     unittest.main()

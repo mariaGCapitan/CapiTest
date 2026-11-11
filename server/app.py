@@ -135,6 +135,25 @@ def create_app(database=None, secure=None, behind_proxy=None):
                       (token_hash(token), uid, db.now() + seconds))
         return token
 
+    # Envía desde el servidor el correo con el enlace para elegir contraseña.
+    # Añade enviado=True si ha salido; si no, la pantalla ofrece prepararlo a mano.
+    def send_invite(out):
+        cfg = correo.config()
+        out['enviado'] = False
+        if not (cfg and out.get('correo')):
+            return out
+        texto = (f"Hola, {out['nombre'].split(' ')[0]}:\n\n"
+                 "Ya tienes cuenta en CapiTest, la aplicación para crear y corregir exámenes tipo test con el móvil.\n\n"
+                 f"Tu usuario: {out['usuario']}\n\n"
+                 f"Entra desde este enlace y elige tu contraseña:\n{cfg['url']}#/invitacion/{out['token']}\n\n"
+                 f"El enlace caduca en {INVITE_DAYS} días y solo se puede usar una vez.")
+        try:
+            correo.enviar(out['correo'], 'Tu cuenta de CapiTest', texto, cfg)
+            out['enviado'] = True
+        except Exception as e:  # noqa: BLE001 — se apunta en el registro y se ofrece el envío a mano
+            app.logger.error('No se ha podido enviar la invitación: %s', e)
+        return out
+
     def invited_user(token):
         return con().execute(
             '''SELECT u.* FROM invitaciones i JOIN usuarios u ON u.id = i.user_id
@@ -384,7 +403,8 @@ def create_app(database=None, secure=None, behind_proxy=None):
         except db.sqlite3.IntegrityError:
             return error('Ese usuario ya existe')
         db.log(con(), adm['usuario'], f'crea el usuario {usuario}', request.remote_addr)
-        return jsonify(usuario=usuario, nombre=nombre, correo=correo, token=new_invite(cur.lastrowid))
+        out = dict(usuario=usuario, nombre=nombre, correo=correo, token=new_invite(cur.lastrowid))
+        return jsonify(send_invite(out))
 
     @app.post('/api/usuarios/<int:uid>')
     def edit_user(uid):
@@ -415,6 +435,7 @@ def create_app(database=None, secure=None, behind_proxy=None):
         if d.get('invitar'):
             out.update(usuario=target['usuario'], nombre=target['nombre'], correo=target['correo'],
                        token=new_invite(uid))
+            send_invite(out)
             con().execute('UPDATE usuarios SET hash = ?, cambiar_clave = 1 WHERE id = ?',
                           (hash_password(secrets.token_hex(32)), uid))
             con().execute('DELETE FROM sesiones WHERE user_id = ?', (uid,))
