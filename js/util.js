@@ -78,7 +78,7 @@ export async function shareFile(blob, filename, title) {
   try {
     await navigator.share({ files: [file], title });
   } catch (e) {
-    if (e.name !== 'AbortError') { toast('No se ha podido compartir; se descarga.'); downloadFile(blob, filename); }
+    if (e.name !== 'AbortError') { toast('No se ha podido compartir; se descarga'); downloadFile(blob, filename); }
   }
 }
 

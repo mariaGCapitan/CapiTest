@@ -206,12 +206,12 @@ def create_app(database=None, secure=None, behind_proxy=None):
     def forgot():
         cfg = correo.config()
         if not cfg:
-            return error('Este servidor no puede enviar correos. Pide a la administración un enlace nuevo.', 503)
+            return error('Este servidor no puede enviar correos. Pide a la administración un enlace nuevo', 503)
         usuario = str(body().get('usuario', '')).strip().lower()[:80]
         ip = request.remote_addr or ''
         keys = [('usuario', f'olvido:{usuario}'), ('ip', f'olvido-ip:{ip}')]
         if blocked(keys):
-            return error('Demasiadas peticiones. Espera 15 minutos.', 429)
+            return error('Demasiadas peticiones. Espera 15 minutos', 429)
         add_fail(keys)
         u = con().execute('SELECT * FROM usuarios WHERE usuario = ? AND activo = 1', (usuario,)).fetchone()
         if u and u['correo']:
@@ -249,7 +249,7 @@ def create_app(database=None, secure=None, behind_proxy=None):
         ip = request.remote_addr or ''
         keys = [('usuario', f'registro:{mail}'), ('ip', f'registro-ip:{ip}')]
         if blocked(keys):
-            return error('Demasiadas peticiones. Espera 15 minutos.', 429)
+            return error('Demasiadas peticiones. Espera 15 minutos', 429)
         add_fail(keys)
         usuario = mail.split('@')[0]
         ya = con().execute('SELECT usuario FROM usuarios WHERE usuario = ? OR lower(correo) = ?',
@@ -293,7 +293,7 @@ def create_app(database=None, secure=None, behind_proxy=None):
         keys = [('usuario', f'u:{usuario}|{ip}'), ('ip', f'ip:{ip}')]
         if blocked(keys):
             db.log(con(), usuario, 'acceso bloqueado', ip)
-            return error('Demasiados intentos. Espera 15 minutos.', 429)
+            return error('Demasiados intentos. Espera 15 minutos', 429)
         u = con().execute('SELECT * FROM usuarios WHERE usuario = ?', (usuario,)).fetchone()
         ok = check_password(clave, u['hash'] if u else DUMMY) and bool(u) and bool(u['activo'])
         if not ok:
@@ -312,11 +312,11 @@ def create_app(database=None, secure=None, behind_proxy=None):
         ip = request.remote_addr or ''
         keys = [('ip', f'inv:{ip}')]
         if blocked(keys):
-            return error('Demasiados intentos. Espera 15 minutos.', 429)
+            return error('Demasiados intentos. Espera 15 minutos', 429)
         u = invited_user(body().get('token', ''))
         if not u:
             add_fail(keys)
-            return error('Este enlace ya no vale. Pide uno nuevo.', 404)
+            return error('Este enlace ya no vale. Pide uno nuevo', 404)
         return jsonify(usuario=u['usuario'], nombre=u['nombre'])
 
     @app.post('/api/invitacion')
@@ -325,11 +325,11 @@ def create_app(database=None, secure=None, behind_proxy=None):
         ip = request.remote_addr or ''
         keys = [('ip', f'inv:{ip}')]
         if blocked(keys):
-            return error('Demasiados intentos. Espera 15 minutos.', 429)
+            return error('Demasiados intentos. Espera 15 minutos', 429)
         u = invited_user(d.get('token', ''))
         if not u:
             add_fail(keys)
-            return error('Este enlace ya no vale. Pide uno nuevo.', 404)
+            return error('Este enlace ya no vale. Pide uno nuevo', 404)
         nueva = str(d.get('nueva', ''))[:200]
         if len(nueva) < MIN_PASSWORD:
             return error(f'La contraseña debe tener al menos {MIN_PASSWORD} caracteres')

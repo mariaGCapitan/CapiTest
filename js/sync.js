@@ -33,7 +33,7 @@ export async function api(path, body, { timeout = 60000 } = {}) {
       signal: ctrl.signal,
     }).catch(e => { throw new NetworkError(e.message); });
     const data = await r.json().catch(() => null);
-    if (!r.ok) throw new ApiError(data?.error || 'El servidor no ha podido atender la petición.', r.status);
+    if (!r.ok) throw new ApiError(data?.error || 'El servidor no ha podido atender la petición', r.status);
     return data;
   } finally {
     clearTimeout(t);

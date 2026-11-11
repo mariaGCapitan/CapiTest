@@ -306,15 +306,15 @@ function examForm(exam) {
   f.onsubmit = async ev => {
     ev.preventDefault();
     const module = !f.modsel || f.modsel.value === '__new' ? f.modnew.value.trim() : f.modsel.value;
-    if (!module) return toast('Escribe el módulo.');
+    if (!module) return toast('Escribe el módulo');
     const penalty = f.pen.value === 'custom' ? parseFloat(String(f.penc.value).replace(',', '.')) : parseFloat(f.pen.value);
-    if (!(penalty >= 0)) return toast('La penalización no es válida.');
+    if (!(penalty >= 0)) return toast('La penalización no es válida');
     let imported = null;
     if (!exam && f.file.files[0]) {
       try { imported = await importExamFile(f.file.files[0]); } catch (err) { return toast(err.message); }
     }
     const title = f.elements.title.value.trim() || imported?.title || '';
-    if (!title) return toast('Escribe el título del examen.');
+    if (!title) return toast('Escribe el título del examen');
     const target = exam || { id: uid(6), created: Date.now(), questions: [], results: {}, printed: null };
     Object.assign(target, { title, module, groupId: f.group.value, penalty, shuffleQ: f.sq.checked, shuffleO: f.so.checked });
     if (imported) { target.questions = imported.questions; target.open = imported.open; }
@@ -423,9 +423,9 @@ function pointsDialog(exam, done = route) {
     if (first) {
       first.focus();
       show();
-      return toast(first === f.tp ? 'El test tiene que valer entre 0 y 10.' : 'La pregunta marcada en rojo tiene que valer más de 0.');
+      return toast(first === f.tp ? 'El test tiene que valer entre 0 y 10' : 'La pregunta marcada en rojo tiene que valer más de 0');
     }
-    if (Math.abs(total - 10) > 1e-6) return toast(`Suman ${fmtNum(total)} y tienen que sumar 10.`);
+    if (Math.abs(total - 10) > 1e-6) return toast(`Suman ${fmtNum(total)} y tienen que sumar 10`);
     exam.testPoints = tp;
     for (const q of open) q.points = pts[q.id];
     await saveExam(exam);
@@ -485,7 +485,7 @@ function viewOpen(examId, qid) {
     f.onsubmit = async ev => {
       ev.preventDefault();
       collect();
-      if (!q.text && !q.code && !q.image) return toast('La pregunta necesita enunciado, código o imagen.');
+      if (!q.text && !q.code && !q.image) return toast('La pregunta necesita enunciado, código o imagen');
       const at = exam.open.findIndex(x => x.id === q.id);
       if (at < 0) exam.open.push(q); else exam.open[at] = q;
       await saveExam(exam);
@@ -750,10 +750,10 @@ function viewQuestion(examId, qid) {
     f.onsubmit = async ev => {
       ev.preventDefault();
       collect();
-      if (!q.text && !q.code && !q.image) return toast('La pregunta necesita enunciado, código o imagen.');
-      if (q.options.some(o => !o.text)) return toast('Rellena todas las respuestas o quita las que sobren.');
-      if (multi && q.multi.length < 2) return toast('Marca al menos dos respuestas correctas, o quita «Varias respuestas correctas».');
-      if (multi && q.multi.length === q.options.length) return toast('Al menos una respuesta tiene que ser incorrecta.');
+      if (!q.text && !q.code && !q.image) return toast('La pregunta necesita enunciado, código o imagen');
+      if (q.options.some(o => !o.text)) return toast('Rellena todas las respuestas o quita las que sobren');
+      if (multi && q.multi.length < 2) return toast('Marca al menos dos respuestas correctas, o quita «Varias respuestas correctas»');
+      if (multi && q.multi.length === q.options.length) return toast('Al menos una respuesta tiene que ser incorrecta');
       const at = exam.questions.findIndex(x => x.id === q.id);
       if (at < 0) exam.questions.push(q); else exam.questions[at] = q;
       await saveExam(exam);
@@ -921,7 +921,7 @@ function tabScan(exam, el) {
     <p class="muted small" id="count">${Object.keys(exam.results).length} de ${total} corregidos.</p>
     <p class="muted small">Consejos: hoja sobre la mesa y bien iluminada, sin sombras del móvil; que se vean los cuatro cuadrados de las esquinas. Si en papel falta alguno, imprime de nuevo la hoja.</p>`;
   $('#startcam').onclick = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) return toast('Este navegador no deja usar la cámara. Prueba «Desde una foto».');
+    if (!navigator.mediaDevices?.getUserMedia) return toast('Este navegador no deja usar la cámara. Prueba «Desde una foto»');
     $('#cam').innerHTML = `<div class="vbox"><video playsinline muted></video><canvas class="ov"></canvas></div><div class="scan-msg">Abriendo la cámara…</div>`;
     $('#startcam').hidden = true;
     stopScanner();
@@ -1023,7 +1023,7 @@ function resultCard(exam, v, sheetId, printed, photo) {
   $('#discard').onclick = next;
   $('#save').onclick = async () => {
     const sid = reserve ? $('#who').value : v.studentId;
-    if (!sid) return toast('Elige de quién es la hoja.');
+    if (!sid) return toast('Elige de quién es la hoja');
     if (reserve && exam.results[sid] && !confirm('Esa persona ya tiene nota. ¿Sustituirla?')) return;
     const name = students.find(s => s.id === sid)?.name || '';
     const open = reserve ? { ...(exam.results[sid]?.open || {}), ...scores } : scores;
@@ -1225,7 +1225,7 @@ function personName(typed, g, self = null) {
   if (!net.server) return typed;
   const { value, error } = toPseudonym(typed);
   if (error) { toast(error); return null; }
-  if (g.students.some(s => s !== self && s.name === value)) { toast(`${value} ya está en el grupo.`); return null; }
+  if (g.students.some(s => s !== self && s.name === value)) { toast(`${value} ya está en el grupo`); return null; }
   return value;
 }
 
@@ -1302,7 +1302,7 @@ async function addNames(g, input) {
   }
   await saveGroup(g);
   closeModal();
-  toast(`${added} añadidos.`);
+  toast(`${added} añadidos`);
   viewGroup(g.id);
 }
 
@@ -1328,8 +1328,8 @@ function senecaDialog(g, isNew = false) {
     try {
       const wb = window.XLSX.read(await readFile(file, 'arrayBuffer'));
       names = parseSeneca(window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' }));
-    } catch { return toast('No puedo leer ese archivo.'); }
-    if (!names) { e.target.value = ''; return toast('Esta hoja no es la de Séneca: no encuentro la columna «Alumno».'); }
+    } catch { return toast('No puedo leer ese archivo'); }
+    if (!names) { e.target.value = ''; return toast('Esta hoja no es la de Séneca: no encuentro la columna «Alumno»'); }
     addNames(g, names);
   };
 }
@@ -1348,8 +1348,8 @@ function sheetDialog(g) {
       const wb = window.XLSX.read(await readFile(file, 'arrayBuffer'));
       rows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' })
         .filter(r => r.some(c => String(c).trim()));
-    } catch { return toast('No puedo leer ese archivo.'); }
-    if (!rows.length) return toast('El archivo está vacío.');
+    } catch { return toast('No puedo leer ese archivo'); }
+    if (!rows.length) return toast('El archivo está vacío');
     const ncol = Math.max(...rows.slice(0, 50).map(r => r.length));
     const head = rows[0].map(c => String(c));
     const looksHeader = head.some(c => /nombre|alumn|apellido/i.test(c));
@@ -1426,7 +1426,7 @@ function viewSettings() {
     <div class="marca"><img src="icons/logo-capitest.png" alt=""><span>CapiTest<small>María Ojeda García</small></span></div>`;
   const save = async () => {
     await saveSettings({ profesor: $('#prof').value.trim(), centro: $('#centro').value.trim() });
-    toast('Guardado.');
+    toast('Guardado');
   };
   $('#prof').onchange = save;
   $('#centro').onchange = save;
@@ -1469,8 +1469,8 @@ function exportData(parts, filename) {
 
 async function importData(file) {
   let data;
-  try { data = JSON.parse(await readFile(file, 'text')); } catch { return toast('El archivo no es una copia válida.'); }
-  if (data.app !== 'CapiTest') return toast('El archivo no es una copia de CapiTest.');
+  try { data = JSON.parse(await readFile(file, 'text')); } catch { return toast('El archivo no es una copia válida'); }
+  if (data.app !== 'CapiTest') return toast('El archivo no es una copia de CapiTest');
   const groups = data.groups || [], exams = data.exams || [];
   const what = [groups.length && `${groups.length} grupo(s)`, exams.length && `${exams.length} examen(es)`].filter(Boolean).join(' y ') || 'nada';
   const lost = exams.map(x => {
@@ -1492,7 +1492,7 @@ async function importData(file) {
     await saveSettings({ ...data.settings, ...mine });
   }
   await load();
-  toast('Copia importada.');
+  toast('Copia importada');
   if (exams.length === 1) location.hash = `#/examen/${exams[0].id}/corregir`;
   else if (!exams.length && groups.length === 1) location.hash = `#/grupo/${groups[0].id}`;
   else route();
@@ -1557,7 +1557,7 @@ function showLogin() {
       await load();
       if (step === 'password') { state.gate = viewPassword; viewPassword(true); } else enter();
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor');
       btn.disabled = false;
     }
   };
@@ -1582,7 +1582,7 @@ function forgotDialog(usuario) {
         <div class="row end"><button class="btn primary" data-close>Vale</button></div>`;
       s.querySelector('[data-close]').onclick = closeModal;
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor');
       btn.disabled = false;
     }
   };
@@ -1608,7 +1608,7 @@ function registerDialog() {
         <div class="row end"><button class="btn primary" data-close>Vale</button></div>`;
       s.querySelector('[data-close]').onclick = closeModal;
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor');
       btn.disabled = false;
     }
   };
@@ -1639,13 +1639,13 @@ async function viewInvite(token) {
     $('#invf').onsubmit = async ev => {
       ev.preventDefault();
       const f = ev.target.elements;
-      if (f.nueva.value !== f.rep.value) return toast('Las contraseñas no coinciden.');
+      if (f.nueva.value !== f.rep.value) return toast('Las contraseñas no coinciden');
       try {
         await acceptInvite(token, f.nueva.value);
         await load();
         enter();
       } catch (e) {
-        toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+        toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor');
       }
     };
   };
@@ -1668,13 +1668,13 @@ function viewPassword(first = false) {
   $('#pf').onsubmit = async ev => {
     ev.preventDefault();
     const f = ev.target.elements;
-    if (f.nueva.value !== f.rep.value) return toast('Las contraseñas nuevas no coinciden.');
+    if (f.nueva.value !== f.rep.value) return toast('Las contraseñas nuevas no coinciden');
     try {
       await changePassword(f.actual.value, f.nueva.value);
-      toast('Contraseña cambiada.');
+      toast('Contraseña cambiada');
       enter();
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor.');
+      toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor');
     }
   };
 }
@@ -1695,7 +1695,7 @@ function viewAccount() {
     ${net.user.admin ? '<a class="btn block" style="margin-top:8px" href="#/profesorado">Gestionar profesorado</a>' : ''}
     <button class="btn danger block" style="margin-top:8px" id="out">Cerrar sesión</button>`;
   showSync();
-  $('#syncnow').onclick = async () => { await runSync(); showSync(); if (net.state === 'ok') toast('Sincronizado.'); };
+  $('#syncnow').onclick = async () => { await runSync(); showSync(); if (net.state === 'ok') toast('Sincronizado'); };
   $('#chpass').onclick = () => { state.gate = viewPassword; state.gate(); };
   $('#out').onclick = async () => {
     await runSync();
@@ -1730,7 +1730,7 @@ El enlace caduca en 7 días y solo se puede usar una vez.`;
     <button class="btn block" style="margin-top:8px" id="copy">Copiar el enlace</button>
     <div class="row end" style="margin-top:12px"><button class="btn" data-close>Hecho</button></div>`);
   s.querySelector('#copy').onclick = async () => {
-    try { await navigator.clipboard.writeText(url); toast('Enlace copiado.'); } catch { prompt('Copia el enlace', url); }
+    try { await navigator.clipboard.writeText(url); toast('Enlace copiado'); } catch { prompt('Copia el enlace', url); }
   };
   s.querySelector('[data-close]').onclick = () => { closeModal(); viewUsers(); };
 }
@@ -1804,7 +1804,7 @@ async function viewUsers() {
   $$('[data-no]').forEach(b => (b.onclick = async () => {
     const r = sol.find(x => x.id === +b.dataset.no);
     if (!confirm(`¿Rechazar la solicitud de ${r.nombre}? No se le avisará.`)) return;
-    try { await api(`solicitudes/${r.id}/rechazar`, {}); toast('Solicitud rechazada.'); viewUsers(); } catch (e) { toast(e.message); }
+    try { await api(`solicitudes/${r.id}/rechazar`, {}); toast('Solicitud rechazada'); viewUsers(); } catch (e) { toast(e.message); }
   }));
   $$('[data-edit]').forEach(b => (b.onclick = () => {
     const u = list.find(x => x.id === +b.dataset.edit);

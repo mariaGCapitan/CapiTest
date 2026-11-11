@@ -12,17 +12,17 @@ export const isPseudonym = name => FORMAT.test(String(name).trim());
 // Devuelve { value } o { error }.
 export function toPseudonym(name) {
   const clean = String(name ?? '').replace(/\s+/g, ' ').trim();
-  if (!clean) return { error: 'Está vacío.' };
+  if (!clean) return { error: 'Está vacío' };
   if (isPseudonym(clean)) return { value: clean };
   const cut = clean.indexOf(',');
-  if (cut < 0) return { error: 'Falta la coma: escribe «Apellidos, Nombre».' };
+  if (cut < 0) return { error: 'Falta la coma: escribe «Apellidos, Nombre»' };
   const surnames = clean.slice(0, cut).split(/[\s-]+/)
     .filter(w => w && !PARTICLES.has(w.toLocaleLowerCase('es')))
     .map(w => w.replace(/[^\p{L}]/gu, ''))
     .filter(Boolean);
   const given = clean.slice(cut + 1).trim().replace(/[^\p{L} ]/gu, '').trim();
-  if (!surnames.length) return { error: 'Faltan los apellidos.' };
-  if (!given) return { error: 'Falta el nombre.' };
+  if (!surnames.length) return { error: 'Faltan los apellidos' };
+  if (!given) return { error: 'Falta el nombre' };
   const parts = surnames.slice(0, 2).map(w => `${firstLetters(w, 3)}.`).join(' ');
   return { value: `${parts}, ${firstLetters(given, 1)}.` };
 }
@@ -46,7 +46,7 @@ export function checkList(names, existing = []) {
   });
   for (const r of rows) {
     if (r.error) continue;
-    if (seen.get(r.value) > 1) r.error = 'Seudónimo repetido: cambia uno para distinguirlos.';
+    if (seen.get(r.value) > 1) r.error = 'Seudónimo repetido: cambia uno para distinguirlos';
     else if (taken.has(r.value)) r.existing = true;
   }
   return rows;

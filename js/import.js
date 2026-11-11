@@ -18,7 +18,7 @@ export async function importExamFile(file) {
 
 async function parseMoodleXML(raw) {
   const doc = new DOMParser().parseFromString(raw, 'application/xml');
-  if (doc.querySelector('parsererror')) throw new Error('El archivo XML está dañado o no es de Moodle.');
+  if (doc.querySelector('parsererror')) throw new Error('El archivo XML está dañado o no es de Moodle');
   const questions = [], openQs = [], warnings = [];
   let category = '';
   let n = 0;
