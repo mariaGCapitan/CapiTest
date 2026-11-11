@@ -170,8 +170,9 @@ class Auth(Base):
         db.migrate(path)
         db.migrate(path)
         con = db.connect(path)
-        self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], 2)
+        self.assertEqual(con.execute('PRAGMA user_version').fetchone()[0], db.VERSION)
         self.assertEqual(con.execute('SELECT correo FROM usuarios').fetchone()[0], None)
+        self.assertEqual(con.execute('SELECT COUNT(*) FROM solicitudes').fetchone()[0], 0)
 
     def test_solo_admin_gestiona(self):
         c = self.client('pepe')
@@ -313,9 +314,39 @@ class Olvido(Base):
 
 
 class Registro(Base):
-    def test_sin_correo_configurado(self):
+    def test_sin_correo_configurado_guarda_la_solicitud(self):
         r = self.client().post('/api/registro', json={'nombre': 'Ana Pérez', 'correo': 'ana@g.educaand.es'}, headers=H)
-        self.assertEqual(r.status_code, 503)
+        self.assertEqual(r.status_code, 200)
+        sol = self.client('maria').get('/api/usuarios').get_json()['solicitudes']
+        self.assertEqual([(x['nombre'], x['correo'], x['usuario']) for x in sol],
+                         [('Ana Pérez', 'ana@g.educaand.es', 'ana')])
+
+    def test_aceptar_y_rechazar(self):
+        anon = self.client()
+        for nombre, mail in (('Ana Pérez', 'ana@g.educaand.es'), ('Luis Gil', 'lgil1@g.educaand.es')):
+            anon.post('/api/registro', json={'nombre': nombre, 'correo': mail}, headers=H)
+        # Repetir la petición no duplica la solicitud
+        anon.post('/api/registro', json={'nombre': 'Ana Pérez López', 'correo': 'ana@g.educaand.es'}, headers=H)
+        adm = self.client('maria')
+        sol = {x['usuario']: x for x in adm.get('/api/usuarios').get_json()['solicitudes']}
+        self.assertEqual(sorted(sol), ['ana', 'lgil1'])
+        self.assertEqual(sol['ana']['nombre'], 'Ana Pérez López')
+        # Solo administración ve y rechaza solicitudes
+        r = self.client('pepe').post(f"/api/solicitudes/{sol['lgil1']['id']}/rechazar", json={}, headers=H)
+        self.assertEqual(r.status_code, 403)
+        r = adm.post(f"/api/solicitudes/{sol['lgil1']['id']}/rechazar", json={}, headers=H)
+        self.assertEqual(r.status_code, 200)
+        # Aceptar = crear la cuenta con sus datos; la solicitud desaparece
+        a = sol['ana']
+        r = adm.post('/api/usuarios', json={'nombre': a['nombre'], 'usuario': a['usuario'], 'correo': a['correo'],
+                                            'solicitud': a['id']}, headers=H)
+        self.assertEqual(r.status_code, 200)
+        data = adm.get('/api/usuarios').get_json()
+        self.assertEqual(data['solicitudes'], [])
+        self.assertIn('ana', [u['usuario'] for u in data['usuarios']])
+        # Si ya tiene cuenta, no se guarda otra solicitud
+        anon.post('/api/registro', json={'nombre': 'Ana Pérez', 'correo': 'ana@g.educaand.es'}, headers=H)
+        self.assertEqual(adm.get('/api/usuarios').get_json()['solicitudes'], [])
 
     def test_avisa_a_la_cuenta_de_correo(self):
         import correo

@@ -25,6 +25,7 @@ LOCK_SECONDS = 15 * 60
 MAX_FAILS = {'usuario': 8, 'ip': 30}
 USER_RE = re.compile(r'^[a-z0-9._-]{3,40}$')
 MAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+MAX_SOLICITUDES = 100
 EDUCAAND_RE = re.compile(r'^[a-z0-9._-]+@g\.educaand\.es$')
 INVITE_DAYS = 7
 RESET_HOURS = 2
@@ -238,9 +239,6 @@ def create_app(database=None, secure=None, behind_proxy=None):
     # (la de /etc/capitest/correo.env); la cuenta se crea a mano en «Gestionar profesorado».
     @app.post('/api/registro')
     def register():
-        cfg = correo.config()
-        if not cfg:
-            return error('Este servidor no puede enviar correos. Pide el acceso a la administración de CapiTest.', 503)
         d = body()
         nombre = ' '.join(str(d.get('nombre', '')).split())[:80]
         mail = str(d.get('correo', '')).strip().lower()[:120]
@@ -257,14 +255,25 @@ def create_app(database=None, secure=None, behind_proxy=None):
         ya = con().execute('SELECT usuario FROM usuarios WHERE usuario = ? OR lower(correo) = ?',
                            (usuario, mail)).fetchone()
         db.log(con(), usuario, 'pide acceso (registrarme)', ip)
+        # La solicitud queda en «Gestionar profesorado». Si ya tiene cuenta, o hay demasiadas, no se guarda.
+        pendientes = con().execute('SELECT COUNT(*) FROM solicitudes').fetchone()[0]
+        if not ya and pendientes < MAX_SOLICITUDES:
+            con().execute(
+                '''INSERT INTO solicitudes (nombre, correo, usuario, creada) VALUES (?, ?, ?, ?)
+                   ON CONFLICT (correo) DO UPDATE SET nombre = excluded.nombre, creada = excluded.creada''',
+                (nombre, mail, usuario, db.now()))
+        cfg = correo.config()
+        if not cfg:
+            return jsonify(ok=True)
         texto = (f"{nombre} pide entrar en CapiTest.\n\n"
                  f"Correo: {mail}\n"
                  f"Usuario de Séneca (sale del correo, compruébalo): {usuario}\n\n"
-                 + (f"Ojo: ya existe una cuenta con ese usuario o correo ({ya['usuario']}).\n\n" if ya else '')
-                 + f"Para darle acceso, entra en {cfg['url']} con la cuenta de administración, "
-                 "ve a «Gestionar profesorado» y crea la cuenta con ese usuario y ese correo. "
-                 "Le llegará un enlace para elegir su contraseña.\n\n"
-                 "Si no conoces a esta persona, no hagas nada.")
+                 + (f"Ojo: ya existe una cuenta con ese usuario o correo ({ya['usuario']}), "
+                    "así que no se ha guardado la solicitud.\n\n" if ya else
+                    f"La solicitud te espera en {cfg['url']}: entra con la cuenta de administración, "
+                    "ve a «Gestionar profesorado» y pulsa «Aceptar» o «Rechazar». "
+                    "Al aceptarla, le llega un enlace para elegir su contraseña.\n\n")
+                 + "Si no conoces a esta persona, recházala.")
 
         def send():
             try:
@@ -389,8 +398,11 @@ def create_app(database=None, secure=None, behind_proxy=None):
                          AND e.accion IN ('acceso', 'contraseña elegida con invitación')) AS ultimo_acceso,
                       (SELECT MAX(i.expira) FROM invitaciones i WHERE i.user_id = u.id) AS invitacion
                FROM usuarios u ORDER BY u.nombre''').fetchall()
+        solicitudes = con().execute(
+            'SELECT id, nombre, correo, usuario, creada FROM solicitudes ORDER BY creada').fetchall()
         return jsonify(ahora=db.now(), usuarios=[{**dict(r), 'admin': bool(r['admin']), 'activo': bool(r['activo'])}
-                                                 for r in rows])
+                                                 for r in rows],
+                       solicitudes=[dict(r) for r in solicitudes])
 
     @app.post('/api/usuarios')
     def add_user():
@@ -411,6 +423,9 @@ def create_app(database=None, secure=None, behind_proxy=None):
         except db.sqlite3.IntegrityError:
             return error('Ese usuario ya existe')
         db.log(con(), adm['usuario'], f'crea el usuario {usuario}', request.remote_addr)
+        # Si venía de «Registrarme» (o hay una solicitud con ese correo), ya está atendida.
+        con().execute('DELETE FROM solicitudes WHERE id = ? OR correo = ?',
+                      (int(d.get('solicitud') or 0), correo.lower()))
         out = dict(usuario=usuario, nombre=nombre, correo=correo, token=new_invite(cur.lastrowid))
         return jsonify(send_invite(out))
 
@@ -457,6 +472,16 @@ def create_app(database=None, secure=None, behind_proxy=None):
             db.log(con(), adm['usuario'], f"{'activa' if d['activo'] else 'desactiva'} a {target['usuario']}",
                    request.remote_addr)
         return jsonify(ok=True, **out)
+
+    @app.post('/api/solicitudes/<int:sid>/rechazar')
+    def reject_request(sid):
+        adm = need_user(admin=True)
+        row = con().execute('SELECT usuario FROM solicitudes WHERE id = ?', (sid,)).fetchone()
+        if not row:
+            return error('No existe', 404)
+        con().execute('DELETE FROM solicitudes WHERE id = ?', (sid,))
+        db.log(con(), adm['usuario'], f"rechaza la solicitud de {row['usuario']}", request.remote_addr)
+        return jsonify(ok=True)
 
     @app.post('/api/usuarios/<int:uid>/borrar')
     def delete_user(uid):

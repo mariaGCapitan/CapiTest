@@ -5,7 +5,7 @@ import re
 import sqlite3
 import time
 
-VERSION = 2
+VERSION = 3
 
 SCHEMA = """
 CREATE TABLE usuarios (
@@ -61,6 +61,17 @@ CREATE TABLE invitaciones (
 );
 """
 
+# Peticiones de «Registrarme» que esperan a que administración las acepte o las rechace.
+SCHEMA_3 = """
+CREATE TABLE solicitudes (
+  id INTEGER PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  correo TEXT NOT NULL UNIQUE,
+  usuario TEXT NOT NULL,
+  creada INTEGER NOT NULL
+);
+"""
+
 KINDS = ('group', 'exam', 'result', 'settings')
 ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,40}(/[A-Za-z0-9_-]{1,40})?$')
 PAGE_ROWS = 200
@@ -92,7 +103,7 @@ def migrate(path):
         # BEGIN IMMEDIATE: los dos procesos del servidor arrancan a la vez y solo uno debe migrar.
         con.execute('BEGIN IMMEDIATE')
         version = con.execute('PRAGMA user_version').fetchone()[0]
-        for number, sql in ((1, SCHEMA), (2, SCHEMA_2)):
+        for number, sql in ((1, SCHEMA), (2, SCHEMA_2), (3, SCHEMA_3)):
             if version < number:
                 for statement in _statements(sql):
                     con.execute(statement)

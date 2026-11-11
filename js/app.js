@@ -1645,14 +1645,25 @@ async function viewUsers() {
   if (!net.user?.admin) { location.hash = '#/cuenta'; return; }
   setHeader('Profesorado', '#/cuenta');
   setNav('');
-  let list, ahora;
+  let list, ahora, sol;
   try {
-    ({ usuarios: list, ahora } = await api('usuarios'));
+    ({ usuarios: list, ahora, solicitudes: sol = [] } = await api('usuarios'));
   } catch {
     main().innerHTML = '<p class="empty">Para gestionar el profesorado hace falta conexión con el servidor.</p>';
     return;
   }
-  main().innerHTML = `<button class="btn primary block" id="nu">+ Nueva cuenta</button><div style="height:12px"></div>
+  main().innerHTML = `${sol.length ? `<h2 class="section">Solicitudes pendientes</h2>
+    ${sol.map(r => `<div class="card">
+      <div class="card-title">${esc(r.nombre)}</div>
+      <div class="muted small">${esc(r.correo)} · usuario: ${esc(r.usuario)}</div>
+      <div class="small" style="margin-top:4px"><span class="badge warn">Pide acceso</span> ${fmtDate(r.creada * 1000)}</div>
+      <div class="acciones">
+        <button class="btn small primary" data-ok="${r.id}">Aceptar</button>
+        <button class="btn small danger" data-no="${r.id}">Rechazar</button>
+      </div>
+    </div>`).join('')}
+    <h2 class="section">Cuentas</h2>` : ''}
+    <button class="btn primary block" id="nu">+ Nueva cuenta</button><div style="height:12px"></div>
     ${list.map(u => `<div class="card">
       <div class="card-title">${esc(u.nombre)}</div>
       <div class="muted small">${esc(u.usuario)}${u.correo ? ` · ${esc(u.correo)}` : ''}${u.admin ? ' · administración' : ''}${u.activo ? '' : ' · desactivada'}</div>
@@ -1664,21 +1675,30 @@ async function viewUsers() {
         <button class="btn small danger" data-del="${u.id}">Borrar</button>`}
       </div>
     </div>`).join('')}`;
-  $('#nu').onclick = () => {
-    const s = modal(`<h3>Nueva cuenta</h3><form id="uf">
-      <label class="field"><span>Nombre</span><input type="text" name="nombre" required></label>
-      <label class="field"><span>Usuario de Séneca</span><input type="text" name="usuario" autocapitalize="none" spellcheck="false" placeholder="Por ejemplo: jperlop123" required></label>
-      <label class="field"><span>Correo</span><input type="email" name="correo" autocapitalize="none" spellcheck="false" required></label>
+  // Nueva cuenta. Desde una solicitud, sale rellena con sus datos para revisarlos antes de crearla.
+  const newUser = (r = null) => {
+    const s = modal(`<h3>${r ? 'Aceptar la solicitud' : 'Nueva cuenta'}</h3><form id="uf">
+      ${r ? '<p class="small" style="margin-top:0">Comprueba que el usuario coincide con el de Séneca. Al crear la cuenta, le llegará el enlace para elegir su contraseña.</p>' : ''}
+      <label class="field"><span>Nombre</span><input type="text" name="nombre" value="${esc(r?.nombre || '')}" required></label>
+      <label class="field"><span>Usuario de Séneca</span><input type="text" name="usuario" value="${esc(r?.usuario || '')}" autocapitalize="none" spellcheck="false" placeholder="Por ejemplo: jperlop123" required></label>
+      <label class="field"><span>Correo</span><input type="email" name="correo" value="${esc(r?.correo || '')}" autocapitalize="none" spellcheck="false" required></label>
       <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Crear</button></div></form>`);
     s.querySelector('[data-close]').onclick = closeModal;
     s.querySelector('#uf').onsubmit = async ev => {
       ev.preventDefault();
       const f = ev.target.elements;
       try {
-        showInvite(await api('usuarios', { nombre: f.nombre.value, usuario: f.usuario.value, correo: f.correo.value }));
+        showInvite(await api('usuarios', { nombre: f.nombre.value, usuario: f.usuario.value, correo: f.correo.value, solicitud: r?.id }));
       } catch (e) { toast(e.message); }
     };
   };
+  $('#nu').onclick = () => newUser();
+  $$('[data-ok]').forEach(b => (b.onclick = () => newUser(sol.find(r => r.id === +b.dataset.ok))));
+  $$('[data-no]').forEach(b => (b.onclick = async () => {
+    const r = sol.find(x => x.id === +b.dataset.no);
+    if (!confirm(`¿Rechazar la solicitud de ${r.nombre}? No se le avisará.`)) return;
+    try { await api(`solicitudes/${r.id}/rechazar`, {}); toast('Solicitud rechazada.'); viewUsers(); } catch (e) { toast(e.message); }
+  }));
   $$('[data-edit]').forEach(b => (b.onclick = () => {
     const u = list.find(x => x.id === +b.dataset.edit);
     const mine = u.usuario === net.user.usuario;
