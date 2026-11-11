@@ -368,5 +368,20 @@ class InvitacionPorCorreo(Base):
         self.assertFalse(r.get_json()['enviado'])
 
 
+class EstadoCuentas(Base):
+    def test_invitado_y_ultimo_acceso(self):
+        adm = self.client('maria')
+        nueva = adm.post('/api/usuarios', json={'usuario': 'nueva', 'nombre': 'Nueva', 'correo': 'n@ejemplo.es'}, headers=H).get_json()
+        lista = {u['usuario']: u for u in adm.get('/api/usuarios').get_json()['usuarios']}
+        self.assertIsNotNone(lista['nueva']['invitacion'])
+        self.assertTrue(lista['nueva']['cambiar_clave'])
+        self.assertIsNone(lista['nueva']['ultimo_acceso'])
+        self.assertIsNotNone(lista['maria']['ultimo_acceso'])
+        self.app.test_client().post('/api/invitacion', json={'token': nueva['token'], 'nueva': 'otra-clave-larga'}, headers=H)
+        lista = {u['usuario']: u for u in adm.get('/api/usuarios').get_json()['usuarios']}
+        self.assertIsNone(lista['nueva']['invitacion'])
+        self.assertIsNotNone(lista['nueva']['ultimo_acceso'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1625,13 +1625,26 @@ El enlace caduca en 7 días y solo se puede usar una vez.`;
   s.querySelector('[data-close]').onclick = () => { closeModal(); viewUsers(); };
 }
 
+// Estado de la cuenta: invitación pendiente o caducada, o última entrada.
+function userState(u, ahora) {
+  const day = ts => new Date(ts * 1000).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  if (u.invitacion && u.cambiar_clave) {
+    return u.invitacion > ahora
+      ? `<span class="badge warn">Invitación enviada</span> aún no ha elegido contraseña · el enlace caduca el ${day(u.invitacion)}`
+      : '<span class="badge bad">Enlace caducado</span> pulsa «Nueva invitación» para enviarle otro';
+  }
+  return u.ultimo_acceso
+    ? `<span class="badge ok">Activa</span> último acceso: ${fmtDate(u.ultimo_acceso * 1000)}`
+    : '<span class="badge">Sin entrar todavía</span>';
+}
+
 async function viewUsers() {
   if (!net.user?.admin) { location.hash = '#/cuenta'; return; }
   setHeader('Profesorado', '#/cuenta');
   setNav('');
-  let list;
+  let list, ahora;
   try {
-    ({ usuarios: list } = await api('usuarios'));
+    ({ usuarios: list, ahora } = await api('usuarios'));
   } catch {
     main().innerHTML = '<p class="empty">Para gestionar el profesorado hace falta conexión con el servidor.</p>';
     return;
@@ -1640,6 +1653,7 @@ async function viewUsers() {
     ${list.map(u => `<div class="card">
       <div class="card-title">${esc(u.nombre)}</div>
       <div class="muted small">${esc(u.usuario)}${u.correo ? ` · ${esc(u.correo)}` : ''}${u.admin ? ' · administración' : ''}${u.activo ? '' : ' · desactivada'}</div>
+      <div class="small" style="margin-top:4px">${userState(u, ahora)}</div>
       <div class="acciones">
         <button class="btn small" data-edit="${u.id}">Editar</button>
         ${u.usuario === net.user.usuario ? '' : `<button class="btn small" data-reset="${u.id}">Nueva invitación</button>

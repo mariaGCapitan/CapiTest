@@ -381,8 +381,16 @@ def create_app(database=None, secure=None, behind_proxy=None):
     @app.get('/api/usuarios')
     def list_users():
         need_user(admin=True)
-        rows = con().execute('SELECT id, usuario, nombre, correo, admin, activo FROM usuarios ORDER BY nombre').fetchall()
-        return jsonify(usuarios=[{**dict(r), 'admin': bool(r['admin']), 'activo': bool(r['activo'])} for r in rows])
+        # ultimo_acceso: última vez que entró (o eligió contraseña); invitacion: caducidad del enlace pendiente
+        # (con cambiar_clave = 1 es una invitación; con 0, un «he olvidado la contraseña» que no cambia nada aún).
+        rows = con().execute(
+            '''SELECT u.id, u.usuario, u.nombre, u.correo, u.admin, u.activo, u.cambiar_clave,
+                      (SELECT MAX(e.at) FROM eventos e WHERE e.usuario = u.usuario
+                         AND e.accion IN ('acceso', 'contraseña elegida con invitación')) AS ultimo_acceso,
+                      (SELECT MAX(i.expira) FROM invitaciones i WHERE i.user_id = u.id) AS invitacion
+               FROM usuarios u ORDER BY u.nombre''').fetchall()
+        return jsonify(ahora=db.now(), usuarios=[{**dict(r), 'admin': bool(r['admin']), 'activo': bool(r['activo'])}
+                                                 for r in rows])
 
     @app.post('/api/usuarios')
     def add_user():
