@@ -165,10 +165,7 @@ function modal(html) {
   const m = document.createElement('div');
   m.className = 'modal';
   m.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
-  // Pinchar fuera cierra la ventana solo si no se ha escrito nada en ella.
-  let escrito = false;
-  m.addEventListener('input', () => { escrito = true; });
-  m.addEventListener('click', e => { if (e.target === m && !escrito) closeModal(); });
+  // Pinchar fuera no cierra la ventana: solo se cierra con sus botones.
   document.body.appendChild(m);
   return m.firstElementChild;
 }
