@@ -569,7 +569,7 @@ function viewExam(id, tab) {
     exportData({ groups: g ? [g] : [], exams: [exam] }, `CapiTest_examen_${safeName(exam.title)}.json`);
   };
   const tabs = [['preguntas', 'Preguntas'], ['imprimir', 'Imprimir'], ['corregir', 'Corregir'], ['notas', 'Notas']];
-  main().innerHTML = `<div class="seg">${tabs.map(([k, t]) => `<a href="#/examen/${id}/${k}" class="${k === tab ? 'on' : ''}">${t}</a>`).join('')}<a href="#" id="edit">Datos</a></div><div id="tab"></div>`;
+  main().innerHTML = `<div class="seg">${tabs.map(([k, t]) => `<a href="#/examen/${id}/${k}" class="${k === tab ? 'on' : ''} ${!exam.printed && (k === 'corregir' || k === 'notas') ? 'off' : ''}">${t}</a>`).join('')}<a href="#" id="edit">Datos</a></div><div id="tab"></div>`;
   $('#edit').onclick = e => { e.preventDefault(); examForm(exam); };
   const el = $('#tab');
   ({ preguntas: tabQuestions, imprimir: tabPrint, corregir: tabScan, notas: tabGrades }[tab] || tabQuestions)(exam, el);
@@ -1031,6 +1031,11 @@ function resultCard(exam, v, sheetId, printed, photo) {
 
 function tabGrades(exam, el) {
   const g = groupById(exam.groupId);
+  // Sin PDF generado no hay hojas que corregir, así que tampoco notas.
+  if (!exam.printed && !Object.keys(exam.results || {}).length) {
+    el.innerHTML = `<p class="empty">Las notas aparecen cuando generes el PDF del examen y corrijas las hojas.<br><a href="#/examen/${exam.id}/imprimir">Ir a Imprimir</a></p>`;
+    return;
+  }
   const students = [...(g?.students || [])];
   for (const [sid, r] of Object.entries(exam.results)) if (!students.some(s => s.id === sid)) students.push({ id: sid, name: r.name || '(fuera del grupo)' });
   const sm = summary(exam);
