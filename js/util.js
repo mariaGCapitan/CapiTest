@@ -33,6 +33,9 @@ export const fmtNota = n => n.toFixed(2).replace('.', ',');
 // Puntos sin ceros de sobra: 7 → «7», 1,5 → «1,5», 0,25 → «0,25».
 export const fmtNum = n => String(Math.round((+n || 0) * 100) / 100).replace('.', ',');
 // Lee un número escrito con coma o punto; NaN si no lo es.
+// «1 alumno/a», «3 alumnos/as»: el número con la forma que le toca.
+export const plural = (n, uno, varios) => `${n} ${n === 1 ? uno : varios}`;
+
 export const parseNum = s => (String(s ?? '').trim() === '' ? NaN : Number(String(s).trim().replace(',', '.')));
 
 export function fmtDate(ts) {

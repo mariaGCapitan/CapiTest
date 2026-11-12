@@ -1,7 +1,7 @@
 // Excel con las notas, las respuestas y el análisis de cada pregunta.
 
 import { grade, questionStats, testPoints, multiOf } from './grading.js';
-import { LETTERS, fmtNum, safeName } from './util.js';
+import { LETTERS, fmtNum, safeName, plural } from './util.js';
 
 export function examExcel(exam, group) {
   const XLSX = window.XLSX;
@@ -20,7 +20,7 @@ export function examExcel(exam, group) {
     const r = results[s.id];
     if (!r) { notas.push([s.name, 'Sin corregir', ...extra.map(() => ''), ...(anyMulti ? [''] : []), '', '', '', '']); continue; }
     const g = grade(exam, r.answers, r.open);
-    const byHand = open.length ? [r2(g.test), ...open.map(q => (typeof r.open?.[q.id] === 'number' ? r.open[q.id] : '')), g.pending ? `${g.pending} pregunta(s)` : ''] : [];
+    const byHand = open.length ? [r2(g.test), ...open.map(q => (typeof r.open?.[q.id] === 'number' ? r.open[q.id] : '')), g.pending ? plural(g.pending, 'pregunta', 'preguntas') : ''] : [];
     notas.push([s.name, r2(g.nota), ...byHand, g.c, ...(anyMulti ? [g.p] : []), g.w, g.b, r.sheetId.startsWith('R') ? `Reserva ${r.sheetId}` : 'Personal']);
   }
 

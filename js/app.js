@@ -1,7 +1,7 @@
 import { db, askPersistence } from './db.js';
 import {
   $, $$, esc, uid, toast, LETTERS, fmtNota, fmtNum, parseNum, fmtDate, PENALTIES, penaltyText,
-  canShareFiles, shareFile, downloadFile, readFile, loadImage, prepareImage, safeName,
+  canShareFiles, shareFile, downloadFile, readFile, loadImage, prepareImage, safeName, plural,
 } from './util.js';
 import { maxQuestions, LAYOUT } from './layout.js';
 import { importExamFile, MAX_OPTS, OPEN_LINES } from './import.js';
@@ -122,7 +122,7 @@ function showSync() {
   if (t) t.textContent = syncText();
 }
 function syncText() {
-  const n = net.pending ? ` ${net.pending} cambio(s) sin subir.` : '';
+  const n = net.pending ? ` ${plural(net.pending, 'cambio sin subir', 'cambios sin subir')}.` : '';
   if (net.state === 'offline') return `Sin conexión con el servidor.${n}`;
   if (net.state === 'syncing') return 'Sincronizando…';
   if (net.state === 'auth') return `La sesión ha caducado.${n}`;
@@ -221,7 +221,7 @@ function viewExams() {
       const done = Object.keys(e.results || {}).length;
       html += `<div class="examrow"><a class="card" style="border-left:4px solid ${tono}" href="#/examen/${e.id}">
         <div class="card-title">${esc(e.title)}</div>
-        <div class="muted">${esc(g?.name || 'Sin grupo')} · ${e.questions.length} preguntas · ${done}/${total} corregidos</div>
+        <div class="muted">${esc(g?.name || 'Sin grupo')} · ${plural(e.questions.length, 'pregunta', 'preguntas')} · ${done}/${total} corregidos</div>
       </a><button class="iconbtn" data-delexam="${e.id}" aria-label="Borrar ${esc(e.title)}">🗑️</button></div>`;
     }
   });
@@ -334,7 +334,7 @@ function importSummary(res, exam = null) {
   const hand = res.warnings.filter(w => w.endsWith(HAND)).map(w => w.slice(0, -HAND.length).replace(': es ', ': '));
   const check = res.warnings.filter(w => !w.endsWith(HAND));
   const s = modal(`<h3>Examen importado</h3>
-    <p><b>${res.questions.length}</b> preguntas de test importadas${nOpen ? ` y <b>${nOpen}</b> para corregir a mano` : ''}.</p>
+    <p><b>${res.questions.length}</b> ${res.questions.length === 1 ? 'pregunta de test importada' : 'preguntas de test importadas'}${nOpen ? ` y <b>${nOpen}</b> para corregir a mano` : ''}.</p>
     ${hand.length ? `<div class="banner info"><b>Se corrigen a mano (${hand.length})</b><ul class="small">${hand.map(w => `<li>${esc(w)}</li>`).join('')}</ul><span class="small">Se imprimen con espacio para responder.</span></div>` : ''}
     ${check.length ? `<div class="banner warn"><b>Revisa estas preguntas (${check.length})</b><ul class="small">${check.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>` : ''}
     <div class="row end"><button class="btn primary" data-close>${nOpen && exam ? 'Repartir la nota' : 'Vale'}</button></div>`);
@@ -527,7 +527,7 @@ function importDialog(exam) {
       <label class="field"><span>Archivo de Moodle (XML o GIFT)</span>
         <input type="file" name="file" accept=".xml,.gift,.txt,text/xml,text/plain" required></label>
       ${exam.questions.length || exam.open?.length ? `
-      <label class="check"><input type="radio" name="mode" value="replace" checked><span>Sustituir las ${exam.questions.length + (exam.open?.length || 0)} preguntas actuales</span></label>
+      <label class="check"><input type="radio" name="mode" value="replace" checked><span>Sustituir ${exam.questions.length + (exam.open?.length || 0) === 1 ? 'la pregunta actual' : `las ${exam.questions.length + (exam.open?.length || 0)} preguntas actuales`}</span></label>
       <label class="check"><input type="radio" name="mode" value="add"><span>Añadirlas al final</span></label>` : ''}
       <div class="row end"><button type="button" class="btn" data-close>Cancelar</button><button class="btn primary">Importar</button></div>
     </form>`);
@@ -611,7 +611,7 @@ function tabQuestions(exam, el) {
   const open = exam.open || [];
   if (open.length) {
     html += `<h2 class="section">Para corregir a mano</h2>
-      ${pointsOk(exam) ? `<p class="muted small">Test: ${fmtNum(testPoints(exam))} puntos · a mano: ${fmtNum(openSum(exam))} puntos. Se imprimen después del test, con líneas para responder.</p>`
+      ${pointsOk(exam) ? `<p class="muted small">Test: ${fmtNum(testPoints(exam))} ${testPoints(exam) === 1 ? 'punto' : 'puntos'} · a mano: ${fmtNum(openSum(exam))} ${openSum(exam) === 1 ? 'punto' : 'puntos'}. Se imprimen después del test, con líneas para responder.</p>`
         : '<div class="banner warn">Falta repartir la nota entre el test y estas preguntas.</div>'}
       <button class="btn block" id="pts" style="margin-bottom:12px">Reparto de la nota</button>
       ${open.map((q, i) => `<div class="card q">
@@ -619,7 +619,7 @@ function tabQuestions(exam, el) {
         <a class="body" href="#/examen/${exam.id}/abierta/${q.id}" style="color:inherit;text-decoration:none">
           <div class="txt">${esc(q.text || q.code)}</div>
           <span class="badge warn">a mano</span><span class="badge">${q.points ? `${fmtNum(q.points)} ${q.points === 1 ? 'punto' : 'puntos'}` : 'sin valor'}</span>
-          <span class="badge">${q.lines} líneas</span>${q.code ? '<span class="badge">código</span>' : ''}${q.image ? '<span class="badge">imagen</span>' : ''}
+          <span class="badge">${plural(q.lines, 'línea', 'líneas')}</span>${q.code ? '<span class="badge">código</span>' : ''}${q.image ? '<span class="badge">imagen</span>' : ''}
         </a>
         <div class="tools">
           <button class="iconbtn" data-oup="${i}" aria-label="Subir" ${i ? '' : 'disabled'}>▲</button>
@@ -780,7 +780,7 @@ function tabPrint(exam, el) {
   if (st === 'partial') html += `<div class="banner info">Hay alumnado nuevo en el grupo. Al generar el PDF se le crea su versión; las del resto no cambian.</div>`;
   if (st === 'ok') html += `<div class="banner ok">Versiones creadas el ${fmtDate(exam.printed.at)}. Si vuelves a generar el PDF, cada alumno o alumna conserva su misma versión.</div>`;
   html += `<div class="card">
-      <p style="margin-top:0"><b>${n}</b> preguntas${exam.open?.length ? ` de test y <b>${exam.open.length}</b> para corregir a mano` : ''} · <b>${g?.students.length || 0}</b> alumnos/as de ${esc(g?.name || '—')}<br>
+      <p style="margin-top:0"><b>${n}</b> ${n === 1 ? 'pregunta' : 'preguntas'}${exam.open?.length ? ` de test y <b>${exam.open.length}</b> para corregir a mano` : ''} · <b>${g?.students.length || 0}</b> ${(g?.students.length || 0) === 1 ? 'alumno/a' : 'alumnos/as'} de ${esc(g?.name || '—')}<br>
       <span class="muted">${exam.shuffleQ ? 'Preguntas barajadas' : 'Preguntas en orden'} · ${exam.shuffleO ? 'respuestas barajadas' : 'respuestas en orden'}</span></p>
       <label class="check"><input type="checkbox" id="duplex" ${opts.duplex ? 'checked' : ''}><span>Impresión a doble cara (la hoja de respuestas queda sola en su folio)</span></label>
       <label class="field"><span>Hojas de reserva sin nombre</span><input type="number" id="reserves" min="0" max="30" value="${opts.reserves}"></label>
@@ -1002,7 +1002,7 @@ function resultCard(exam, v, sheetId, printed, photo) {
     ${reserve ? `<label class="field"><span>¿De quién es?</span><select id="who"><option value="">Elige…</option>
       ${students.map(s => `<option value="${s.id}">${exam.results[s.id] ? '✓ ' : ''}${esc(s.name)}</option>`).join('')}</select></label>` : ''}
     ${!reserve && exam.results[v.studentId] ? '<div class="banner warn">Esta hoja ya estaba corregida. Si guardas, se sustituye.</div>' : ''}
-    ${doubts ? `<div class="banner warn">Hay ${doubts} pregunta(s) dudosa(s): con varias marcas, con el círculo a medio rellenar o tachado. Compruébalas con la hoja.</div>` : ''}
+    ${doubts ? `<div class="banner warn">Hay ${plural(doubts, 'pregunta dudosa', 'preguntas dudosas')}: con varias marcas, con el círculo a medio rellenar o tachado. Compruébalas con la hoja.</div>` : ''}
     <div id="grid"></div>
     <div id="openin"></div>
     <details><summary class="muted small">Ver la foto leída</summary><img class="snap" src="${photo}" alt="Foto de la hoja con las marcas leídas"></details>
@@ -1137,7 +1137,7 @@ function viewGroups() {
   const list = [...state.groups].sort((a, b) => a.name.localeCompare(b.name, 'es'));
   main().innerHTML = `<button class="btn primary block" id="ng">+ Nuevo grupo</button>
     ${list.length ? '<div style="height:12px"></div>' : `<p class="empty">Crea un grupo por cada clase e importa su lista de alumnado${net.server ? ' de Séneca' : ''}.</p>`}
-    ${list.map(g => `<a class="card" href="#/grupo/${g.id}"><div class="card-title">${esc(g.name)}</div><div class="muted">${g.students.length} alumnos/as</div></a>`).join('')}`;
+    ${list.map(g => `<a class="card" href="#/grupo/${g.id}"><div class="card-title">${esc(g.name)}</div><div class="muted">${plural(g.students.length, 'alumno/a', 'alumnos/as')}</div></a>`).join('')}`;
   $('#ng').onclick = () => {
     const s = modal(`<h3>Nuevo grupo</h3><form id="gf">
       <label class="field"><span>Nombre</span><input type="text" name="name" placeholder="Por ejemplo: 1.º ASIR A - 26/27" required></label>
@@ -1168,7 +1168,7 @@ function viewGroup(id) {
       <button class="btn grow" id="xls">Importar Excel o CSV</button>`}
     </div>
     <div class="card">
-      <div class="row"><b class="grow">${g.students.length} alumnos/as</b>${g.students.length > 1 ? '<button class="btn small" id="sort">Ordenar A-Z</button>' : ''}</div>
+      <div class="row"><b class="grow">${plural(g.students.length, 'alumno/a', 'alumnos/as')}</b>${g.students.length > 1 ? '<button class="btn small" id="sort">Ordenar A-Z</button>' : ''}</div>
       <ul class="students">${g.students.map(s => `<li><span>${esc(s.name)}</span><button class="iconbtn" data-rn="${s.id}" aria-label="Renombrar">✎</button><button class="iconbtn" data-del="${s.id}" aria-label="Quitar">✕</button></li>`).join('')}</ul>
       <form id="addf" class="row" style="margin-top:10px"><input type="text" name="n" class="grow" placeholder="${net.server ? 'Apellidos, Nombre' : 'Añadir alumno/a'}"><button class="btn">Añadir</button></form>
     </div>
@@ -1210,7 +1210,7 @@ function viewGroup(id) {
   }
   $('#delg').onclick = async () => {
     const used = state.exams.filter(e => e.groupId === g.id);
-    if (used.length) return alert(`No se puede borrar: lo usan ${used.length} examen(es). Bórralos o cámbiales el grupo antes.`);
+    if (used.length) return alert(`No se puede borrar: ${used.length === 1 ? 'lo usa 1 examen. Bórralo o cámbiale' : `lo usan ${used.length} exámenes. Bórralos o cámbiales`} el grupo antes.`);
     if (!confirm(`¿Borrar el grupo «${g.name}»?`)) return;
     await db.del('groups', g.id);
     state.groups = state.groups.filter(x => x.id !== g.id);
@@ -1302,7 +1302,7 @@ async function addNames(g, input) {
   }
   await saveGroup(g);
   closeModal();
-  toast(`${added} añadidos`);
+  toast(plural(added, 'añadido', 'añadidos'));
   viewGroup(g.id);
 }
 
@@ -1371,7 +1371,7 @@ function sheetDialog(g) {
     };
     const preview = () => {
       const n = names();
-      s.querySelector('#ex').textContent = `${n.length} nombres. Ejemplo: ${n.slice(0, 2).join(' / ')}`;
+      s.querySelector('#ex').textContent = `${plural(n.length, 'nombre', 'nombres')}. Ejemplo: ${n.slice(0, 2).join(' / ')}`;
     };
     $$('#map select, #map input', s).forEach(x => (x.onchange = preview));
     preview();
@@ -1472,11 +1472,11 @@ async function importData(file) {
   try { data = JSON.parse(await readFile(file, 'text')); } catch { return toast('El archivo no es una copia válida'); }
   if (data.app !== 'CapiTest') return toast('El archivo no es una copia de CapiTest');
   const groups = data.groups || [], exams = data.exams || [];
-  const what = [groups.length && `${groups.length} grupo(s)`, exams.length && `${exams.length} examen(es)`].filter(Boolean).join(' y ') || 'nada';
+  const what = [groups.length && plural(groups.length, 'grupo', 'grupos'), exams.length && plural(exams.length, 'examen', 'exámenes')].filter(Boolean).join(' y ') || 'nada';
   const lost = exams.map(x => {
     const here = examById(x.id);
     const a = Object.keys(here?.results || {}).length, b = Object.keys(x.results || {}).length;
-    return here && a > b ? `\n· «${here.title}»: aquí tiene ${a} notas y la copia trae ${b}.` : '';
+    return here && a > b ? `\n· «${here.title}»: aquí tiene ${plural(a, 'nota', 'notas')} y la copia trae ${b}.` : '';
   }).join('');
   const warn = lost ? `\n\nOjo, perderías notas:${lost}` : '';
   if (!confirm(`La copia trae ${what}. Se añade a lo que ya hay; lo que coincida se sustituye.${warn}\n\n¿Seguir?`)) return;
@@ -1699,7 +1699,7 @@ function viewAccount() {
   $('#chpass').onclick = () => { state.gate = viewPassword; state.gate(); };
   $('#out').onclick = async () => {
     await runSync();
-    if (net.pending && !confirm(`Hay ${net.pending} cambio(s) sin subir al servidor y se perderán. ¿Cerrar sesión igualmente?`)) return;
+    if (net.pending && !confirm(`Hay ${plural(net.pending, 'cambio sin subir al servidor que se perderá', 'cambios sin subir al servidor que se perderán')}. ¿Cerrar sesión igualmente?`)) return;
     await logout();
     await load();
     location.hash = '#/';
