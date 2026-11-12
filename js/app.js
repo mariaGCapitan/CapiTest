@@ -209,7 +209,7 @@ function viewExams() {
   let html = `<div class="row"><button class="btn primary grow" id="new">+ Nuevo examen</button>
     ${net.server ? '' : '<label class="btn">Importar<input type="file" id="impx" accept=".json,application/json" hidden></label>'}</div>`;
   if (!list.length) {
-    html += `<p class="empty">Todavía no hay exámenes.<br>Crea uno y sube el archivo de Moodle (XML o GIFT).</p>`;
+    html += `<p class="empty">Todavía no hay exámenes.<br>Crea uno y sube el archivo de Moodle (XML o GIFT)</p>`;
   }
   const tonos = ['azul', 'magenta', 'naranja', 'verde'];
   mods.forEach((m, i) => {
@@ -591,7 +591,7 @@ function tabQuestions(exam, el) {
   html += `<div class="row" style="margin-bottom:12px">
     <button class="btn primary grow" id="imp">Importar de Moodle (XML o GIFT)</button>
     <a class="btn" href="#/examen/${exam.id}/pregunta/nueva">+ Una a mano</a></div>`;
-  if (!n) html += `<p class="empty">Sin preguntas todavía.<br>Exporta el banco de preguntas de Moodle en formato XML o GIFT e impórtalo aquí.</p>`;
+  if (!n) html += `<p class="empty">Sin preguntas todavía.<br>Exporta el banco de preguntas de Moodle en formato XML o GIFT e impórtalo aquí</p>`;
   html += exam.questions.map((q, i) => `
     <div class="card q ${q.annulled ? 'annulled' : ''}">
       <div class="num">${i + 1}</div>
@@ -772,7 +772,7 @@ function tabPrint(exam, el) {
   const n = exam.questions.length, max = maxQuestions(nopt(exam));
   const opts = exam.printOpts || { duplex: false, reserves: 3 };
   let html = '';
-  if (!n) { el.innerHTML = `<p class="empty">Primero importa las preguntas.</p>`; return; }
+  if (!n) { el.innerHTML = `<p class="empty">Primero importa las preguntas</p>`; return; }
   if (n > max) { el.innerHTML = `<div class="banner bad">Hay ${n} preguntas y en la hoja caben ${max}.</div>`; return; }
   if (!g || !g.students.length) html += `<div class="banner warn">El grupo no tiene alumnado; solo se imprimirán hojas de reserva.</div>`;
   if (!pointsOk(exam)) html += `<div class="banner warn">Falta repartir la nota entre el test y las preguntas para corregir a mano (pestaña Preguntas).</div>`;
@@ -909,7 +909,7 @@ function answerGrid(container, exam, v, printed, onChange) {
 
 function tabScan(exam, el) {
   const g = groupById(exam.groupId);
-  if (!exam.printed) { el.innerHTML = `<p class="empty">Primero genera el PDF en la pestaña Imprimir.</p>`; return; }
+  if (!exam.printed) { el.innerHTML = `<p class="empty">Primero genera el PDF en la pestaña Imprimir</p>`; return; }
   const total = g?.students.length || 0;
   el.innerHTML = `
     <div class="cam" id="cam"><div class="placeholder">Pulsa «Abrir cámara» y enfoca la hoja de respuestas.</div></div>
@@ -1136,7 +1136,7 @@ function viewGroups() {
   setNav('grupos');
   const list = [...state.groups].sort((a, b) => a.name.localeCompare(b.name, 'es'));
   main().innerHTML = `<button class="btn primary block" id="ng">+ Nuevo grupo</button>
-    ${list.length ? '<div style="height:12px"></div>' : `<p class="empty">Crea un grupo por cada clase e importa su lista de alumnado${net.server ? ' de Séneca' : ''}.</p>`}
+    ${list.length ? '<div style="height:12px"></div>' : `<p class="empty">Crea un grupo por cada clase e importa su lista de alumnado${net.server ? ' de Séneca' : ''}</p>`}
     ${list.map(g => `<a class="card" href="#/grupo/${g.id}"><div class="card-title">${esc(g.name)}</div><div class="muted">${plural(g.students.length, 'alumno/a', 'alumnos/as')}</div></a>`).join('')}`;
   $('#ng').onclick = () => {
     const s = modal(`<h3>Nuevo grupo</h3><form id="gf">
@@ -1756,7 +1756,7 @@ async function viewUsers() {
   try {
     ({ usuarios: list, ahora, solicitudes: sol = [] } = await api('usuarios'));
   } catch {
-    main().innerHTML = '<p class="empty">Para gestionar el profesorado hace falta conexión con el servidor.</p>';
+    main().innerHTML = '<p class="empty">Para gestionar el profesorado hace falta conexión con el servidor</p>';
     return;
   }
   main().innerHTML = `${sol.length ? `<h2 class="section">Solicitudes pendientes</h2>
@@ -1877,7 +1877,7 @@ async function init() {
   if (invite && net.server) viewInvite(invite[1]);
   else if (step === 'login') showLogin();
   else if (step === 'password') { state.gate = viewPassword; viewPassword(true); }
-  else if (step === 'needs-network') bare('CapiTest', '<p class="empty">Para entrar hace falta conexión con el servidor del centro.</p>');
+  else if (step === 'needs-network') bare('CapiTest', '<p class="empty">Para entrar hace falta conexión con el servidor del centro</p>');
   else { route(); runSync(); }
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
