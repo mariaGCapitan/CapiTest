@@ -111,11 +111,13 @@ function isSquare(c) {
 
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
-// Elige las cuatro marcas: el cuadrilátero convexo más grande con forma de folio.
+// Elige las cuatro marcas: los cuadriláteros convexos con forma de folio, del más grande al más pequeño.
+// Normalmente el primero es la hoja; si algo oscuro del fondo (un portátil, el borde de la mesa) forma otro
+// más grande, analyze() prueba los siguientes hasta que el QR se lee.
 function pickMarkers(cands, w, h) {
   cands.sort((a, b) => b.cnt - a.cnt);
   const C = cands.slice(0, 14);
-  let best = null;
+  const found = [];
   const n = C.length;
   for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let d = c + 1; d < n; d++) {
     const set = [C[a], C[b], C[c], C[d]];
@@ -144,9 +146,9 @@ function pickMarkers(cands, w, h) {
     for (let i = 0; i < 4; i++) area += pts[i][0] * pts[(i + 1) % 4][1] - pts[(i + 1) % 4][0] * pts[i][1];
     area = Math.abs(area) / 2;
     if (area < w * h * 0.12) continue; // la hoja tiene que ocupar buena parte de la imagen
-    if (!best || area > best.area) best = { pts, area };
+    found.push({ pts, area });
   }
-  return best;
+  return found.sort((x, y) => y.area - x.area);
 }
 
 /* ---------- Perspectiva ---------- */
@@ -234,13 +236,28 @@ function removeThin(bin, w, h, r) {
   return opened;
 }
 
-export function findSheet(bin, w, h) {
+// Posibles cuatro marcas, de la más probable a la menos. La primera es la de siempre.
+function sheetCandidates(bin, w, h, max = 6) {
   const minSide = Math.max(w, h) * 0.012, maxSide = Math.max(w, h) * 0.12;
   const find = b => pickMarkers(components(b, w, h, minSide * minSide * 0.6, maxSide * maxSide * 1.2).filter(isSquare), w, h);
   const plain = find(bin);
   const clean = find(removeThin(bin, w, h, Math.max(1, Math.round(Math.max(w, h) / 300))));
-  const best = !plain ? clean : !clean ? plain : clean.area > plain.area * 1.02 ? clean : plain;
-  return best && best.pts;
+  const p0 = plain[0], c0 = clean[0];
+  const best = !p0 ? c0 : !c0 ? p0 : c0.area > p0.area * 1.02 ? c0 : p0;
+  const out = [];
+  const key = q => q.pts.map(p => p.map(Math.round).join(',')).sort().join(';');
+  const seen = new Set();
+  for (const q of [best, ...[...plain, ...clean].sort((x, y) => y.area - x.area)]) {
+    if (!q || seen.has(key(q))) continue;
+    seen.add(key(q));
+    out.push(q.pts);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+export function findSheet(bin, w, h) {
+  return sheetCandidates(bin, w, h, 1)[0] || null;
 }
 
 // Para el visor en directo: solo dice si ve la hoja y dónde.
@@ -252,21 +269,32 @@ export function quickFind(imageData) {
 // Análisis completo de una foto (canvas a resolución completa).
 export function analyze(canvas) {
   const P = prepare(canvas);
-  const pts = findSheet(P.bin, P.w, P.h);
-  if (!pts) return { ok: false, reason: 'No encuentro los cuatro cuadrados de las esquinas. Comprueba que se imprimieron los cuatro.' };
+  const all = sheetCandidates(P.bin, P.w, P.h);
+  if (!all.length) return { ok: false, reason: 'No encuentro los cuatro cuadrados de las esquinas. Comprueba que se imprimieron los cuatro.' };
   const ref = markCenters(); // TL, TR, BL, BR
   const srcCtx = canvas.getContext('2d', { willReadFrequently: true });
-  for (let k = 0; k < 4; k++) {
+  let fallback = null;
+  // Solo con las esquinas buenas se lee el QR en su sitio: si no, se prueba con el siguiente candidato.
+  for (const pts of all) for (let k = 0; k < 4; k++) {
     const TL = pts[k], TR = pts[(k + 1) % 4], BR = pts[(k + 2) % 4], BL = pts[(k + 3) % 4];
     const wid = (dist(TL, TR) + dist(BL, BR)) / 2, hei = (dist(TL, BL) + dist(TR, BR)) / 2;
     if (wid > hei) continue; // la hoja va en vertical respecto a sus marcas
     const H = homography(ref, [TL, TR, BL, BR]);
     if (!H) continue;
     const qr = readQR(srcCtx, canvas, H, 1 / P.s);
-    if (qr) return { ok: true, qr, H, ...P, corners: [TL, TR, BR, BL] };
+    if (!qr) continue;
+    const found = { ok: true, qr: qr.data, H, ...P, corners: [TL, TR, BR, BL] };
+    // Con las esquinas buenas, el QR aparece justo donde debe. Si está desplazado, alguna esquina es
+    // otra cosa (un portátil, el borde de la mesa): se prueba el siguiente candidato.
+    if (qr.offMm <= QR_TOLERANCE_MM) return found;
+    if (!fallback || qr.offMm < fallback.offMm) fallback = { found, offMm: qr.offMm };
   }
+  // Si ninguno cuadra del todo, el que menos se desvía (es lo que se hacía antes).
+  if (fallback) return fallback.found;
   return { ok: false, reason: 'Veo la hoja, pero no consigo leer el código QR. Acerca un poco el móvil.' };
 }
+
+const QR_TOLERANCE_MM = 2.5;
 
 function readQR(ctx, canvas, H, scale) {
   const m = 5, q = SHEET.qr;
@@ -279,7 +307,17 @@ function readQR(ctx, canvas, H, scale) {
   if (x1 - x0 < 20 || y1 - y0 < 20) return null;
   const img = ctx.getImageData(x0, y0, x1 - x0, y1 - y0);
   const r = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-  return r ? r.data : null;
+  if (!r) return null;
+  // Distancia (en mm de la hoja) entre donde está el QR en la foto y donde debería estar según las esquinas.
+  const want = [[q.x, q.y], [q.x + q.size, q.y], [q.x, q.y + q.size], [q.x + q.size, q.y + q.size]]
+    .map(([x, y]) => project(H, x, y).map(v => v * scale));
+  const L = r.location;
+  const got = [L.topLeftCorner, L.topRightCorner, L.bottomLeftCorner, L.bottomRightCorner].map(c => [c.x + x0, c.y + y0]);
+  const pxPerMm = dist(want[0], want[1]) / q.size;
+  // El QR puede salir girado respecto a la hoja: se toma el emparejamiento de esquinas que mejor encaja.
+  const rot = [[0, 1, 2, 3], [2, 0, 3, 1], [3, 2, 1, 0], [1, 3, 0, 2]];
+  const off = Math.min(...rot.map(o => Math.max(...want.map((w, i) => dist(w, got[o[i]])))));
+  return { data: r.data, offMm: off / pxPerMm };
 }
 
 // Relleno de cada círculo (0 a 1) para una hoja de nq preguntas y nopt opciones.
