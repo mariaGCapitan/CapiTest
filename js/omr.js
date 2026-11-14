@@ -329,18 +329,44 @@ export function readBubbles(an, nq, nopt) {
     const dx = i / 4 * rin, dy = j / 4 * rin;
     if (dx * dx + dy * dy <= rin * rin) offs.push([dx, dy]);
   }
-  return lay.items.map(it => it.opts.map(o => {
+  const fill = (o, sx, sy) => {
     let dark = 0, tot = 0;
     for (const [dx, dy] of offs) {
-      const [u, v] = project(an.H, o.x + dx, o.y + dy);
+      const [u, v] = project(an.H, o.x + sx + dx, o.y + sy + dy);
       const xi = Math.round(u), yi = Math.round(v);
       if (xi < 0 || yi < 0 || xi >= an.w || yi >= an.h) continue;
       tot++;
       dark += an.bin[yi * an.w + xi];
     }
     return tot ? dark / tot : 0;
-  }));
+  };
+  // Si el papel no está del todo plano, las filas pueden quedar corridas algo menos de 1 mm. Primero se mira, en
+  // cada fila con una marca clara, en qué posición destaca más esa marca; después cada fila usa la posición
+  // mediana de las filas de alrededor. El papel se curva poco a poco, así que eso corrige la curva; en cambio,
+  // un círculo a medio rellenar no se «arregla» solo, porque su fila sigue a sus vecinas y sale dudoso.
+  const shifts = [];
+  for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) shifts.push([a * ROW_SHIFT_MM / 2, b * ROW_SHIFT_MM / 2]);
+  const sum = f => f.reduce((x, y) => x + y, 0);
+  const contrast = f => 2 * Math.max(...f) - sum(f);
+  const own = lay.items.map(it => {
+    let best = null;
+    for (const [sx, sy] of shifts) {
+      const f = it.opts.map(o => fill(o, sx, sy));
+      if (Math.max(...f) >= MARKED && (!best || contrast(f) > best.c)) best = { c: contrast(f), sx, sy };
+    }
+    return best;
+  });
+  const median = v => { const w = [...v].sort((x, y) => x - y); const m = w.length >> 1; return w.length % 2 ? w[m] : (w[m - 1] + w[m]) / 2; };
+  return lay.items.map((it, i) => {
+    const near = own.filter((x, k) => x && Math.abs(k - i) <= ROW_NEIGHBOURS);
+    if (near.length < 3) return it.opts.map(o => fill(o, 0, 0));
+    const sx = median(near.map(x => x.sx)), sy = median(near.map(x => x.sy));
+    return it.opts.map(o => fill(o, sx, sy));
+  });
 }
+
+const ROW_NEIGHBOURS = 3;
+const ROW_SHIFT_MM = 0.8;
 
 export const MARKED = 0.55, DOUBT = 0.2;
 
