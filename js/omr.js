@@ -340,12 +340,14 @@ export function readBubbles(an, nq, nopt) {
     }
     return tot ? dark / tot : 0;
   };
-  // Si el papel no está del todo plano, las filas pueden quedar corridas algo menos de 1 mm. Primero se mira, en
+  // Si el papel no está del todo plano, las filas pueden quedar corridas hasta unos 2 mm. Primero se mira, en
   // cada fila con una marca clara, en qué posición destaca más esa marca; después cada fila usa la posición
   // mediana de las filas de alrededor. El papel se curva poco a poco, así que eso corrige la curva; en cambio,
   // un círculo a medio rellenar no se «arregla» solo, porque su fila sigue a sus vecinas y sale dudoso.
   const shifts = [];
-  for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) shifts.push([a * ROW_SHIFT_MM / 2, b * ROW_SHIFT_MM / 2]);
+  for (let a = -ROW_SHIFT_STEPS; a <= ROW_SHIFT_STEPS; a++) for (let b = -ROW_SHIFT_STEPS; b <= ROW_SHIFT_STEPS; b++) {
+    shifts.push([a * ROW_SHIFT_MM / ROW_SHIFT_STEPS, b * ROW_SHIFT_MM / ROW_SHIFT_STEPS]);
+  }
   const sum = f => f.reduce((x, y) => x + y, 0);
   const contrast = f => 2 * Math.max(...f) - sum(f);
   const own = lay.items.map(it => {
@@ -366,7 +368,8 @@ export function readBubbles(an, nq, nopt) {
 }
 
 const ROW_NEIGHBOURS = 3;
-const ROW_SHIFT_MM = 0.8;
+const ROW_SHIFT_MM = 2; // una hoja doblada puede llevar los círculos hasta 2 mm de su sitio
+const ROW_SHIFT_STEPS = 5; // de 0,4 en 0,4 mm
 
 export const MARKED = 0.55, DOUBT = 0.2;
 
