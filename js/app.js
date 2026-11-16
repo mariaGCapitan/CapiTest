@@ -3,7 +3,7 @@ import {
   $, $$, esc, uid, toast, LETTERS, fmtNota, fmtNum, parseNum, fmtDate, PENALTIES, penaltyText,
   canShareFiles, shareFile, downloadFile, readFile, loadImage, prepareImage, safeName, plural,
 } from './util.js';
-import { maxQuestions, LAYOUT } from './layout.js';
+import { maxQuestions, layoutOf } from './layout.js';
 import { importExamFile, MAX_OPTS, OPEN_LINES } from './import.js';
 import { buildPrint, examPDF, parseQR } from './pdf.js';
 import { grade, summary, questionStats, versionFor, nopt, testPoints, multiOf, qScore } from './grading.js';
@@ -255,7 +255,7 @@ function examForm(exam) {
     return;
   }
   const modules = [...new Set(state.exams.map(e => e.module).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  const e = exam || { title: '', module: modules[0] || '', groupId: state.groups[0].id, penalty: 0.25, shuffleQ: true, shuffleO: true };
+  const e = exam || { title: '', module: modules[0] || '', groupId: state.groups[0].id, penalty: 0.25, shuffleQ: true, shuffleO: true, sheet: 'guias' };
   const known = PENALTIES.some(p => Math.abs(p.v - e.penalty) < 1e-6);
   const s = modal(`<h3>${exam ? 'Datos del examen' : 'Nuevo examen'}</h3>
     <form id="ef">
@@ -286,6 +286,7 @@ function examForm(exam) {
       </label>
       <label class="check"><input type="checkbox" name="sq" ${e.shuffleQ ? 'checked' : ''}><span>Barajar el orden de las preguntas</span></label>
       <label class="check"><input type="checkbox" name="so" ${e.shuffleO ? 'checked' : ''}><span>Barajar el orden de las respuestas</span></label>
+      <label class="check"><input type="checkbox" name="guias" ${e.sheet === 'guias' ? 'checked' : ''}><span>Hoja de respuestas con guías en cada fila (se lee mejor aunque el papel esté doblado)</span></label>
       ${exam ? '' : `<label class="field"><span>Archivo del examen (Moodle XML o GIFT)</span>
         <input type="file" name="file" accept=".xml,.gift,.txt,text/xml,text/plain"></label>`}
       <div class="row end">
@@ -317,6 +318,7 @@ function examForm(exam) {
     if (!title) return toast('Escribe el título del examen');
     const target = exam || { id: uid(6), created: Date.now(), questions: [], results: {}, printed: null };
     Object.assign(target, { title, module, groupId: f.group.value, penalty, shuffleQ: f.sq.checked, shuffleO: f.so.checked });
+    if (f.guias.checked) target.sheet = 'guias'; else delete target.sheet;
     if (imported) { target.questions = imported.questions; target.open = imported.open; }
     await saveExam(target);
     closeModal();
@@ -552,7 +554,7 @@ function importDialog(exam) {
 function printState(exam, group) {
   const p = exam.printed;
   if (!p) return 'never';
-  if (p.layout !== LAYOUT) return 'layout';
+  if (p.layout !== layoutOf(exam)) return 'layout';
   const qids = exam.questions.map(q => q.id);
   const same = p.nopt === nopt(exam) && p.qids.length === qids.length && qids.every(id => p.qids.includes(id))
     && exam.questions.every(q => p.nopts?.[q.id] === q.options.length)
@@ -777,11 +779,12 @@ function tabPrint(exam, el) {
   if (!g || !g.students.length) html += `<div class="banner warn">El grupo no tiene alumnado; solo se imprimirán hojas de reserva.</div>`;
   if (!pointsOk(exam)) html += `<div class="banner warn">Falta repartir la nota entre el test y las preguntas para corregir a mano (pestaña Preguntas).</div>`;
   if (st === 'stale') html += `<div class="banner warn">Las preguntas han cambiado desde la última impresión. Al generar el PDF se crean versiones nuevas y las hojas impresas antes dejan de valer.</div>`;
+  if (st === 'layout') html += `<div class="banner warn">Has cambiado el tipo de hoja de respuestas. Al generar el PDF se crean hojas nuevas y las impresas antes dejan de valer.</div>`;
   if (st === 'partial') html += `<div class="banner info">Hay alumnado nuevo en el grupo. Al generar el PDF se le crea su versión; las del resto no cambian.</div>`;
   if (st === 'ok') html += `<div class="banner ok">Versiones creadas el ${fmtDate(exam.printed.at)}. Si vuelves a generar el PDF, cada alumno o alumna conserva su misma versión.</div>`;
   html += `<div class="card">
       <p style="margin-top:0"><b>${n}</b> ${n === 1 ? 'pregunta' : 'preguntas'}${exam.open?.length ? ` de test y <b>${exam.open.length}</b> para corregir a mano` : ''} · <b>${g?.students.length || 0}</b> ${(g?.students.length || 0) === 1 ? 'alumno/a' : 'alumnos/as'} de ${esc(g?.name || '—')}<br>
-      <span class="muted">${exam.shuffleQ ? 'Preguntas barajadas' : 'Preguntas en orden'} · ${exam.shuffleO ? 'respuestas barajadas' : 'respuestas en orden'}</span></p>
+      <span class="muted">${exam.shuffleQ ? 'Preguntas barajadas' : 'Preguntas en orden'} · ${exam.shuffleO ? 'respuestas barajadas' : 'respuestas en orden'}${exam.sheet === 'guias' ? ' · hoja con guías' : ''}</span></p>
       <label class="check"><input type="checkbox" id="duplex" ${opts.duplex ? 'checked' : ''}><span>Impresión a doble cara (la hoja de respuestas queda sola en su folio)</span></label>
       <label class="field"><span>Hojas de reserva sin nombre</span><input type="number" id="reserves" min="0" max="30" value="${opts.reserves}"></label>
       <button class="btn primary block" id="gen">Generar PDF</button>
@@ -978,8 +981,8 @@ function handleScan(exam, an) {
   const v = exam.printed.sheets[info.sheetId];
   if (!v) return showScanError('No encuentro esta hoja entre las impresas.');
   const nq = exam.printed.qids.length, n = exam.printed.nopt;
-  const fills = readBubbles(an, nq, n);
-  drawReading(an, nq, n, fills);
+  const fills = readBubbles(an, nq, n, exam.printed.layout);
+  drawReading(an, nq, n, fills, exam.printed.layout);
   const printed = fillsToPrinted(exam, v, fills);
   resultCard(exam, v, info.sheetId, printed, an.c.toDataURL('image/jpeg', 0.75));
 }

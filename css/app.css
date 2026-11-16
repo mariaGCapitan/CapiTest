@@ -177,6 +177,12 @@ a.card:active { background: var(--brand-soft); }
 .btn.small { min-height: 34px; padding: 6px 10px; font-size: .85rem; }
 .btn.block { display: flex; width: 100%; }
 .btn:disabled { opacity: .5; cursor: default; }
+/* Selector de archivo: el botón del navegador con el aspecto de un botón pequeño de la app */
+input[type=file] { font: inherit; font-size: .88rem; color: var(--muted); max-width: 100%; }
+input[type=file]::file-selector-button {
+  appearance: none; border: 1px solid transparent; background: var(--btn); color: var(--btn-ink);
+  border-radius: 8px; padding: 6px 12px; margin-right: 10px; font: inherit; font-weight: 600; font-size: .85rem; cursor: pointer;
+}
 .iconbtn {
   appearance: none; border: 0; background: none; color: var(--muted); font-size: 1.1rem;
   min-width: 36px; min-height: 36px; border-radius: 8px; cursor: pointer;

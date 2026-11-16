@@ -1,7 +1,7 @@
 // Lectura de la hoja: busca las cuatro marcas negras, calcula la perspectiva,
 // lee el QR y mide cuánto está relleno cada círculo.
 
-import { SHEET, markCenters, bubbleLayout } from './layout.js';
+import { SHEET, LAYOUT, LAYOUT_GUIAS, GUIDE, guideXs, rowY, radiusFor, markCenters, bubbleLayout } from './layout.js';
 
 export const WORK = 1600; // lado mayor de la imagen con la que se trabaja
 
@@ -320,10 +320,61 @@ function readQR(ctx, canvas, H, scale) {
   return { data: r.data, offMm: off / pxPerMm };
 }
 
+// Hoja con guías: busca cada barra cerca de donde debería estar. Devuelve, por fila, el desplazamiento
+// [dx, dy] en mm de cada barra (de izquierda a derecha), o null si casi no encuentra barras
+// (entonces se lee como una hoja sin guías).
+function guideOffsets(an, rows, xs) {
+  const pts = [];
+  for (let a = 0; a < 9; a++) for (let b = 0; b < 4; b++) pts.push([(a / 8 - 0.5) * (GUIDE.w - 1), (b / 3 - 0.5) * (GUIDE.h - 0.4)]);
+  const dark = (cx, cy) => {
+    let d = 0, t = 0;
+    for (const [px, py] of pts) {
+      const [u, v] = project(an.H, cx + px, cy + py);
+      const xi = Math.round(u), yi = Math.round(v);
+      if (xi < 0 || yi < 0 || xi >= an.w || yi >= an.h) continue;
+      t++;
+      d += an.bin[yi * an.w + xi];
+    }
+    return t ? d / t : 0;
+  };
+  // Busca la barra alrededor de (cx + px, cy + py), con un margen de ±rx y ±ry mm.
+  const find = (cx, cy, [px, py], rx, ry) => {
+    const tries = [];
+    for (let a = -rx * 4; a <= rx * 4; a++) for (let b = -ry * 5; b <= ry * 5; b++) {
+      const dx = px + a * 0.25, dy = py + b * 0.2;
+      tries.push({ dx, dy, f: dark(cx + dx, cy + dy) });
+    }
+    const best = Math.max(...tries.map(t => t.f));
+    if (best < 0.6) return null;
+    // Centro de las posiciones casi igual de buenas (la barra cabe con algo de holgura).
+    const top = tries.filter(t => t.f >= best - 0.05);
+    return [top.reduce((x, t) => x + t.dx, 0) / top.length, top.reduce((x, t) => x + t.dy, 0) / top.length];
+  };
+  // Las barras se siguen de arriba abajo: cada una se busca cerca de donde estaba la de la fila anterior,
+  // porque de una fila a la siguiente el papel apenas cambia. Así no se salta a la barra de otra fila
+  // aunque el desfase acumulado sea mayor que media fila.
+  const found = [];
+  const last = xs.map(() => [0, 0]);
+  for (let r = 0; r < rows; r++) {
+    found.push(xs.map((x, k) => {
+      const g = find(x, rowY(r), last[k], 2, r === 0 ? 3 : 1.6);
+      if (g) last[k] = g;
+      return g;
+    }));
+  }
+  if (found.flat().filter(Boolean).length < 4) return null;
+  // Si falta alguna barra, se toma la de la misma columna en la fila más cercana.
+  return found.map((row, r) => row.map((g, k) => {
+    if (g) return g;
+    for (let d = 1; d < rows; d++) for (const q of [r - d, r + d]) if (found[q]?.[k]) return found[q][k];
+    return [0, 0];
+  }));
+}
+
 // Relleno de cada círculo (0 a 1) para una hoja de nq preguntas y nopt opciones.
-export function readBubbles(an, nq, nopt) {
+export function readBubbles(an, nq, nopt, layout = LAYOUT) {
   const lay = bubbleLayout(nq, nopt);
-  const rin = SHEET.r * 0.62;
+  const rin = radiusFor(layout) * 0.62;
   const offs = [];
   for (let i = -4; i <= 4; i++) for (let j = -4; j <= 4; j++) {
     const dx = i / 4 * rin, dy = j / 4 * rin;
@@ -340,6 +391,23 @@ export function readBubbles(an, nq, nopt) {
     }
     return tot ? dark / tot : 0;
   };
+  // Con guías, cada círculo parte del desplazamiento de las dos barras que lo rodean en su fila
+  // (repartido según la distancia a cada una). Sin guías, parte de su sitio teórico.
+  let base = () => [0, 0];
+  if (layout === LAYOUT_GUIAS) {
+    const xs = guideXs(lay, nopt);
+    const g = guideOffsets(an, lay.rows, xs);
+    if (g) {
+      base = (i, o) => {
+        const row = g[i % lay.rows];
+        let k = 0;
+        while (k < xs.length - 2 && o.x > xs[k + 1]) k++;
+        const t = Math.max(0, Math.min(1, (o.x - xs[k]) / (xs[k + 1] - xs[k])));
+        return [row[k][0] * (1 - t) + row[k + 1][0] * t, row[k][1] * (1 - t) + row[k + 1][1] * t];
+      };
+    }
+  }
+  const at = (i, o, sx, sy) => { const [bx, by] = base(i, o); return fill(o, bx + sx, by + sy); };
   // Si el papel no está del todo plano, las filas pueden quedar corridas hasta unos 2 mm. Primero se mira, en
   // cada fila con una marca clara, en qué posición destaca más esa marca; después cada fila usa la posición
   // mediana de las filas de alrededor. El papel se curva poco a poco, así que eso corrige la curva; en cambio,
@@ -350,10 +418,10 @@ export function readBubbles(an, nq, nopt) {
   }
   const sum = f => f.reduce((x, y) => x + y, 0);
   const contrast = f => 2 * Math.max(...f) - sum(f);
-  const own = lay.items.map(it => {
+  const own = lay.items.map((it, i) => {
     let best = null;
     for (const [sx, sy] of shifts) {
-      const f = it.opts.map(o => fill(o, sx, sy));
+      const f = it.opts.map(o => at(i, o, sx, sy));
       if (Math.max(...f) >= MARKED && (!best || contrast(f) > best.c)) best = { c: contrast(f), sx, sy };
     }
     return best;
@@ -361,9 +429,9 @@ export function readBubbles(an, nq, nopt) {
   const median = v => { const w = [...v].sort((x, y) => x - y); const m = w.length >> 1; return w.length % 2 ? w[m] : (w[m - 1] + w[m]) / 2; };
   return lay.items.map((it, i) => {
     const near = own.filter((x, k) => x && Math.abs(k - i) <= ROW_NEIGHBOURS);
-    if (near.length < 3) return it.opts.map(o => fill(o, 0, 0));
+    if (near.length < 3) return it.opts.map(o => at(i, o, 0, 0));
     const sx = median(near.map(x => x.sx)), sy = median(near.map(x => x.sy));
-    return it.opts.map(o => fill(o, sx, sy));
+    return it.opts.map(o => at(i, o, sx, sy));
   });
 }
 
@@ -374,7 +442,7 @@ const ROW_SHIFT_STEPS = 5; // de 0,4 en 0,4 mm
 export const MARKED = 0.55, DOUBT = 0.2;
 
 // Dibuja sobre la foto lo que ha leído, para que el profesorado lo compruebe.
-export function drawReading(an, nq, nopt, fills) {
+export function drawReading(an, nq, nopt, fills, layout = LAYOUT) {
   const ctx = an.c.getContext('2d');
   const lay = bubbleLayout(nq, nopt);
   const px = Math.hypot(...[0, 1].map(k => project(an.H, 10, 0)[k] - project(an.H, 0, 0)[k])) / 10;
@@ -390,7 +458,7 @@ export function drawReading(an, nq, nopt, fills) {
     const [u, v] = project(an.H, o.x, o.y);
     ctx.strokeStyle = f >= MARKED ? '#2f9e44' : '#f08c00';
     ctx.beginPath();
-    ctx.arc(u, v, SHEET.r * px * 1.5, 0, Math.PI * 2);
+    ctx.arc(u, v, radiusFor(layout) * px * 1.5, 0, Math.PI * 2);
     ctx.stroke();
   }));
 }

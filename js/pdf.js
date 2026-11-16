@@ -1,6 +1,6 @@
 // Versiones barajadas y PDF con el examen de cada alumno o alumna y su hoja de respuestas.
 
-import { SHEET, LAYOUT, bubbleLayout } from './layout.js';
+import { SHEET, LAYOUT_GUIAS, GUIDE, layoutOf, radiusFor, guideXs, rowY, bubbleLayout } from './layout.js';
 import { uid, shuffle, range, LETTERS, penaltyText } from './util.js';
 import { nopt as examNopt } from './grading.js';
 
@@ -13,7 +13,8 @@ export function buildPrint(exam, group, reserves) {
   const nopt = examNopt(exam);
   const prev = exam.printed;
   const nopts = Object.fromEntries(exam.questions.map(q => [q.id, q.options.length]));
-  const reusable = prev && prev.layout === LAYOUT && prev.nopt === nopt && sameSet(prev.qids, qids)
+  const layout = layoutOf(exam);
+  const reusable = prev && prev.layout === layout && prev.nopt === nopt && sameSet(prev.qids, qids)
     && qids.every(id => prev.nopts?.[id] === nopts[id]);
   const batch = reusable ? prev.batch : uid(4);
   const sheets = reusable ? { ...prev.sheets } : {};
@@ -28,7 +29,7 @@ export function buildPrint(exam, group, reserves) {
   for (let i = 1; i <= reserves; i++) make('R' + i, null);
   // Preguntas impresas con «Varias respuestas correctas»: si cambian, hay que volver a imprimir.
   const multis = exam.questions.filter(q => q.multi?.length > 1).map(q => q.id);
-  return { at: Date.now(), layout: LAYOUT, batch, nopt, qids, nopts, multis, sheets, reserves, changed: !!prev && !reusable };
+  return { at: Date.now(), layout, batch, nopt, qids, nopts, multis, sheets, reserves, changed: !!prev && !reusable };
 }
 
 // Verdadero/Falso no se baraja, y «Ninguna/Todas las anteriores» se quedan en su sitio.
@@ -146,14 +147,25 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
   const anyMulti = exam.questions.some(q => q.multi?.length > 1);
   const inst = 'Rellena por completo el círculo de la respuesta elegida con bolígrafo negro o azul oscuro. '
     + (anyMulti
-      ? 'Marca una sola respuesta por pregunta, salvo en las que dicen «Varias respuestas correctas»: en esas marca todas las correctas; cada una suma su parte y cada incorrecta resta. Si marcas dos en una de respuesta única, cuenta como en blanco. '
-      : 'Marca una sola respuesta por pregunta; si marcas dos, la pregunta cuenta como en blanco. ')
-    + 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados de las esquinas. '
+      ? 'Marca una sola respuesta por pregunta, salvo en las que dicen «Varias respuestas correctas»: en esas marca todas las correctas; cada una suma su parte y cada incorrecta resta. '
+      : 'Marca una sola respuesta por pregunta. ')
+    + (exam.printed.layout === LAYOUT_GUIAS
+      ? 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados de las esquinas ni de las marcas negras de los lados. '
+      : 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados de las esquinas. ')
     + penaltyText(exam.penalty);
   doc.text(doc.splitTextToSize(pdfText(inst), 166), L, 64);
   doc.setTextColor(0);
 
   const lay = bubbleLayout(exam.printed.qids.length, nopt);
+  const r = radiusFor(exam.printed.layout);
+  if (exam.printed.layout === LAYOUT_GUIAS) {
+    // Barras junto a cada fila: el lector las usa para situar la fila aunque el papel esté doblado.
+    doc.setFillColor(0, 0, 0);
+    const xs = guideXs(lay, nopt);
+    for (let k = 0; k < lay.rows; k++) {
+      for (const x of xs) doc.rect(x - GUIDE.w / 2, rowY(k) - GUIDE.h / 2, GUIDE.w, GUIDE.h, 'F');
+    }
+  }
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   for (const x of lay.colX) {
@@ -170,7 +182,7 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
     doc.setFont('helvetica', 'bold');
     doc.text(String(it.n), it.x + SHEET.numW - 2.5, it.y + 1.1, { align: 'right' });
     it.opts.forEach((o, j) => {
-      if (j < count) doc.circle(o.x, o.y, SHEET.r, 'S');
+      if (j < count) doc.circle(o.x, o.y, r, 'S');
     });
     if (it.n % 5 === 0 && it.n !== lay.items.length && (i + 1) % lay.rows !== 0) {
       doc.setDrawColor(200);

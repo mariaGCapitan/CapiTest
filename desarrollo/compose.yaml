@@ -1,0 +1,18 @@
+# CapiTest en desarrollo: https://IP-DEL-MAC:8443 (desde el móvil, en la misma wifi).
+# Usa el código de esta carpeta tal como está (rama desarrollo) y datos de prueba propios, nunca los de Luna.
+services:
+  capitest:
+    build: .
+    container_name: capitest-desarrollo
+    environment:
+      TZ: Europe/Madrid
+      # IP del Mac en la wifi, para el certificado. Arrancar con:
+      #   MAC_IP=$(ipconfig getifaddr en0) docker compose up -d --build
+      MAC_IP: ${MAC_IP:-127.0.0.1}
+    ports:
+      - "8443:8443"
+    volumes:
+      - ..:/opt/capitest:ro
+      - datos:/datos
+volumes:
+  datos:

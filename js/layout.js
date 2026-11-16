@@ -3,6 +3,21 @@
 
 // Cambia LAYOUT cuando se mueva algo que lee la cámara: las hojas impresas con otra geometría dejan de valer.
 export const LAYOUT = 2;
+// Hoja «con guías»: una barra negra al principio y al final de cada fila y círculos algo más grandes.
+// El lector busca las barras para saber dónde está cada fila aunque el papel esté doblado.
+export const LAYOUT_GUIAS = 3;
+export const GUIDE = { w: 5, h: 1.8, gap: 1.5 }; // barras de 5 × 1,8 mm, alargadas: no se confunden con las esquinas
+export const layoutOf = exam => (exam.sheet === 'guias' ? LAYOUT_GUIAS : LAYOUT);
+export const radiusFor = layout => (layout === LAYOUT_GUIAS ? 2.2 : SHEET.r);
+// Posición x (centro, en mm) de las barras de cada fila: a la izquierda de cada columna y a la derecha de la última.
+// Van pegadas a los círculos porque un pliegue deforma sobre todo el centro de la hoja.
+export function guideXs(lay, nopt) {
+  const cw = SHEET.numW + nopt * SHEET.optW;
+  const xs = lay.colX.map(x => x - GUIDE.gap - GUIDE.w / 2);
+  xs.push(lay.colX[lay.colX.length - 1] + cw + GUIDE.gap + GUIDE.w / 2);
+  return xs;
+}
+export const rowY = r => SHEET.grid.top + r * SHEET.rowH + SHEET.rowH / 2;
 
 export const SHEET = {
   w: 210,
