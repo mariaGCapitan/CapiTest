@@ -150,8 +150,8 @@ function drawAnswerSheet(doc, exam, settings, v, person) {
       ? 'Marca una sola respuesta por pregunta, salvo en las que dicen «Varias respuestas correctas»: en esas marca todas las correctas; cada una suma su parte y cada incorrecta resta. '
       : 'Marca una sola respuesta por pregunta. ')
     + (exam.printed.layout === LAYOUT_GUIAS
-      ? 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados de las esquinas ni de las marcas negras de los lados. '
-      : 'Si te equivocas, pide otra hoja. No dobles la hoja ni escribas cerca de los cuadrados de las esquinas. ')
+      ? 'No dobles la hoja ni escribas cerca de los cuadrados de las esquinas ni de las marcas negras de los lados. '
+      : 'No dobles la hoja ni escribas cerca de los cuadrados de las esquinas. ')
     + penaltyText(exam.penalty);
   doc.text(doc.splitTextToSize(pdfText(inst), 166), L, 64);
   doc.setTextColor(0);
