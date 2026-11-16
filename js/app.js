@@ -883,22 +883,21 @@ function showPdfOut() {
 
 // Compartir un examen con otras cuentas: ven lo mismo, corrigen y ven las notas.
 async function shareDialog(exam) {
-  let list, people;
+  let list;
   try {
-    [{ compartido: list }, { profesorado: people }] = await Promise.all([api(`compartir/${exam.id}`), api('profesorado')]);
+    ({ compartido: list } = await api(`compartir/${exam.id}`));
   } catch (e) {
     return toast(e instanceof ApiError ? e.message : 'Para compartir hace falta conexión con el servidor');
   }
   const s = modal('<div id="shb"></div>');
   const draw = () => {
-    const free = people.filter(p => !list.some(x => x.usuario === p.usuario));
     s.querySelector('#shb').innerHTML = `<h3>Compartir «${esc(exam.title)}»</h3>
       <p class="small" style="margin-top:0">Quien tenga acceso ve este examen como tú: genera las hojas ya creadas, corrige y ve las notas. Las preguntas y los datos solo los cambias tú.</p>
       ${list.length ? list.map(x => `<div class="row" style="align-items:center"><span class="grow">${esc(x.nombre)} <span class="muted small">${esc(x.usuario)}</span></span>
         <button class="btn small danger" data-unshare="${esc(x.usuario)}">Quitar</button></div>`).join('') : '<p class="muted">Todavía no lo has compartido con nadie.</p>'}
-      ${free.length ? `<div class="row" style="margin-top:12px"><select id="who" class="grow"><option value="">Elige a un profesor o profesora…</option>
-        ${free.map(p => `<option value="${esc(p.usuario)}">${esc(p.nombre)} (${esc(p.usuario)})</option>`).join('')}</select>
-        <button class="btn primary" id="add">Añadir</button></div>` : ''}
+      <form id="shf" style="margin-top:12px"><label class="field"><span>Usuario de Séneca de la persona</span>
+        <input type="text" id="who" autocapitalize="none" spellcheck="false" autocomplete="off" placeholder="Por ejemplo: jperlop123"></label>
+        <div class="row end"><button class="btn primary">Añadir</button></div></form>
       <div class="row end" style="margin-top:12px"><button class="btn" data-close>Hecho</button></div>`;
     s.querySelector('[data-close]').onclick = closeModal;
     const send = async (usuario, quitar) => {
@@ -910,7 +909,13 @@ async function shareDialog(exam) {
         draw();
       } catch (e) { toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor'); }
     };
-    if (s.querySelector('#add')) s.querySelector('#add').onclick = () => { const u = s.querySelector('#who').value; if (u) send(u, false); else toast('Elige a quién'); };
+    s.querySelector('#shf').onsubmit = ev => {
+      ev.preventDefault();
+      const u = s.querySelector('#who').value.trim().toLowerCase();
+      if (!u) return toast('Escribe su usuario de Séneca');
+      if (list.some(x => x.usuario === u)) return toast('Ya lo tiene compartido');
+      send(u, false);
+    };
     $$('[data-unshare]', s).forEach(b => (b.onclick = () => { if (confirm('¿Dejar de compartir el examen? Las notas que haya corregido se quedan.')) send(b.dataset.unshare, true); }));
   };
   draw();

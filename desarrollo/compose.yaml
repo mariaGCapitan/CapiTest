@@ -4,6 +4,7 @@ services:
   capitest:
     build: .
     container_name: capitest-desarrollo
+    restart: unless-stopped # vuelve a arrancar solo cuando se abre Docker Desktop
     environment:
       TZ: Europe/Madrid
       # IP del Mac en la wifi, para el certificado. Arrancar con:

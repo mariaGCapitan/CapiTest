@@ -469,9 +469,10 @@ class Compartir(Base):
         self.assertEqual(len(res6['rejected']), 1)
         self.assertEqual(self.sync(self.p, since=res6['rev'])['changes'], [])
 
-    def test_lista_de_profesorado(self):
-        r = self.p.get('/api/profesorado').get_json()['profesorado']
-        self.assertEqual([x['usuario'] for x in r], ['maria'])
+    def test_sin_lista_de_profesorado(self):
+        self.assertEqual(self.p.get('/api/profesorado').status_code, 404)
+        r = self.m.post('/api/compartir/e1', json={'usuario': 'nadie'}, headers=H)
+        self.assertEqual(r.status_code, 400)
 
     def test_borrar_el_examen_lo_quita_al_invitado(self):
         self.m.post('/api/compartir/e1', json={'usuario': 'pepe'}, headers=H)

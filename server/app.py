@@ -387,14 +387,6 @@ def create_app(database=None, secure=None, behind_proxy=None):
         except ValueError as e:
             return error(str(e))
 
-    # Profesorado al que se puede compartir un examen (todas las cuentas activas menos la propia).
-    @app.get('/api/profesorado')
-    def colleagues():
-        u = need_user()
-        rows = con().execute('SELECT usuario, nombre FROM usuarios WHERE activo = 1 AND id != ? ORDER BY nombre',
-                             (u['id'],)).fetchall()
-        return jsonify(profesorado=[dict(r) for r in rows])
-
     def own_exam(u, exam_id):
         return con().execute("SELECT 1 FROM items WHERE user_id = ? AND kind = 'exam' AND id = ? AND deleted = 0",
                              (u['id'], exam_id)).fetchone() is not None
@@ -421,7 +413,7 @@ def create_app(database=None, secure=None, behind_proxy=None):
         usuario = str(d.get('usuario', '')).strip().lower()
         other = con().execute('SELECT id, nombre FROM usuarios WHERE usuario = ? AND activo = 1', (usuario,)).fetchone()
         if not other or other['id'] == u['id']:
-            return error('No existe esa cuenta')
+            return error('No hay ninguna cuenta con ese usuario')
         quitar = bool(d.get('quitar'))
         c = con()
         c.execute('BEGIN IMMEDIATE')
