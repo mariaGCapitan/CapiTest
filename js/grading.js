@@ -31,15 +31,21 @@ export const testPoints = exam => (exam.open?.length ? (exam.testPoints ?? 10) :
 
 // openScores: nota puesta a mano en cada pregunta abierta; si falta alguna, queda pendiente.
 export function grade(exam, answers, openScores = null) {
-  let c = 0, p = 0, w = 0, b = 0, raw = 0;
+  let c = 0, p = 0, w = 0, b = 0;
+  let oneC = 0, oneW = 0, multiPts = 0;
   const qs = exam.questions.filter(q => !q.annulled);
   for (const q of qs) {
     const { kind, pts } = qScore(q, answers[q.id]);
     // p: preguntas de varias respuestas acertadas solo en parte.
     if (kind === 'c') c++; else if (kind === 'w' && pts > 0) p++; else if (kind === 'w') w++; else b++;
-    // Las de una respuesta restan la penalización del examen; las de varias ya traen su resta en pts.
-    raw += multiOf(q) ? pts : kind === 'c' ? 1 : kind === 'w' ? -(exam.penalty || 0) : 0;
+    // Las de varias respuestas ya traen su resta en pts; las de una restan la penalización del examen.
+    if (multiOf(q)) multiPts += pts;
+    else if (kind === 'c') oneC++;
+    else if (kind === 'w') oneW++;
   }
+  // Aciertos − errores × penalización, de una vez: sumar −1/3 pregunta a pregunta arrastra errores de
+  // redondeo (un 5 se quedaba en 4,9999… y salía como suspenso).
+  const raw = oneC - oneW * (exam.penalty || 0) + multiPts;
   const N = qs.length;
   const test = N ? Math.max(0, raw) / N * testPoints(exam) : 0;
   let manual = 0, pending = 0;
@@ -47,7 +53,9 @@ export function grade(exam, answers, openScores = null) {
     const s = openScores?.[q.id];
     if (typeof s === 'number') manual += s; else pending++;
   }
-  return { c, p, w, b, N, test, manual, pending, nota: Math.min(10, test + manual) };
+  // Se redondea a la millonésima para que un 5 sea un 5 aunque la división no dé exacta.
+  const nota = Math.round(Math.min(10, test + manual) * 1e6) / 1e6;
+  return { c, p, w, b, N, test, manual, pending, nota };
 }
 
 export function summary(exam) {
