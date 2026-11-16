@@ -26,7 +26,12 @@ const groupById = id => state.groups.find(g => g.id === id);
 const examById = id => state.exams.find(e => e.id === id);
 
 // En el servidor las notas van aparte del examen: dos móviles pueden corregir a la vez sin pisarse.
-const examDoc = ({ results, ...rest }) => rest;
+const examDoc = ({ results, owner, ownerName, ...rest }) => rest;
+// Examen compartido por otra cuenta: se puede imprimir con las hojas ya creadas, corregir y ver notas,
+// pero las preguntas y los datos solo los cambia su propietaria.
+const sharedBy = e => !!e?.owner;
+const ownGroups = () => state.groups.filter(g => !g.owner);
+const ownerOf = c => (c.owner ? { owner: c.owner, ownerName: c.ownerName } : {});
 
 async function saveExam(e) {
   e.updated = Date.now();
@@ -47,7 +52,7 @@ async function saveResult(exam, sid) {
   const now = Date.now();
   if (r) r.updated = now;
   await db.put('exams', exam);
-  await queue('result', `${exam.id}/${sid}`, r || null, now, !r);
+  await queue('result', `${exam.id}/${sid}`, r || null, now, !r, exam.owner || null);
 }
 async function saveSettings(patch) {
   state.settings = { ...state.settings, ...patch, updated: Date.now() };
@@ -62,7 +67,7 @@ function replaceInPlace(target, doc) {
 }
 
 async function applyRemote(items) {
-  const rank = { group: 0, settings: 1, exam: 2, result: 3 };
+  const rank = { group: 0, settings: 1, exam: 2, result: 3, unshare: 4 };
   const touched = new Set();
   for (const c of [...items].sort((a, b) => rank[a.kind] - rank[b.kind])) {
     // Un documento defectuoso no debe impedir que entren los demás.
@@ -72,7 +77,7 @@ async function applyRemote(items) {
           state.groups = state.groups.filter(g => g.id !== c.id);
           await db.del('groups', c.id);
         } else {
-          const doc = { students: [], ...c.doc, id: c.id };
+          const doc = { students: [], ...c.doc, id: c.id, ...ownerOf(c) };
           const g = groupById(c.id);
           if (g) replaceInPlace(g, doc); else state.groups.push(doc);
           await db.put('groups', groupById(c.id));
@@ -86,10 +91,18 @@ async function applyRemote(items) {
           touched.delete(c.id);
           await db.del('exams', c.id);
         } else {
-          const doc = { questions: [], ...c.doc, id: c.id };
+          const doc = { questions: [], ...c.doc, id: c.id, ...ownerOf(c) };
           const e = examById(c.id);
           if (e) replaceInPlace(e, doc); else state.exams.push({ ...doc, results: {} });
           touched.add(c.id);
+        }
+      } else if (c.kind === 'unshare') {
+        // Han dejado de compartir este examen con esta cuenta (o la propietaria lo ha borrado).
+        const e = examById(c.id);
+        if (e && e.owner === c.owner) {
+          state.exams = state.exams.filter(x => x !== e);
+          touched.delete(c.id);
+          await db.del('exams', c.id);
         }
       } else {
         const cut = c.id.indexOf('/');
@@ -102,7 +115,12 @@ async function applyRemote(items) {
       console.error('No se ha podido aplicar', c.kind, c.id, e);
     }
   }
-  for (const id of touched) await db.put('exams', examById(id));
+  for (const id of touched) if (examById(id)) await db.put('exams', examById(id));
+  // Grupos de otras cuentas que ya no usa ningún examen compartido
+  for (const g of state.groups.filter(g => g.owner && !state.exams.some(e => e.owner === g.owner && e.groupId === g.id))) {
+    state.groups = state.groups.filter(x => x !== g);
+    await db.del('groups', g.id);
+  }
   // Nunca se redibuja debajo de alguien que está escribiendo o corrigiendo.
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
   if (!state.scanner && !$('.modal') && !$('#qf') && !$('#result')?.childElementCount && !typing) route();
@@ -222,7 +240,8 @@ function viewExams() {
       html += `<div class="examrow"><a class="card" style="border-left:4px solid ${tono}" href="#/examen/${e.id}">
         <div class="card-title">${esc(e.title)}</div>
         <div class="muted">${esc(g?.name || 'Sin grupo')} · ${plural(e.questions.length, 'pregunta', 'preguntas')} · ${done}/${total} corregidos</div>
-      </a><button class="iconbtn" data-delexam="${e.id}" aria-label="Borrar ${esc(e.title)}">🗑️</button></div>`;
+        ${sharedBy(e) ? `<span class="badge">De ${esc(e.ownerName || 'otra cuenta')}</span>` : e.compartido?.length ? `<span class="badge">Compartido con ${esc(e.compartido.map(x => x.nombre).join(', '))}</span>` : ''}
+      </a>${sharedBy(e) ? '' : `<button class="iconbtn" data-delexam="${e.id}" aria-label="Borrar ${esc(e.title)}">🗑️</button>`}</div>`;
     }
   });
   main().innerHTML = html;
@@ -238,6 +257,7 @@ function viewExams() {
 }
 
 async function deleteExam(exam) {
+  if (sharedBy(exam)) { toast(`Solo ${exam.ownerName || 'quien lo creó'} puede borrar este examen`); return false; }
   if (!confirm(`¿Borrar el examen «${exam.title}» y todas sus notas? No se puede deshacer.`)) return false;
   await db.del('exams', exam.id);
   state.exams = state.exams.filter(x => x.id !== exam.id);
@@ -247,7 +267,15 @@ async function deleteExam(exam) {
 }
 
 function examForm(exam) {
-  if (!state.groups.length) {
+  if (sharedBy(exam)) {
+    const s = modal(`<h3>Examen compartido</h3>
+      <p>Este examen es de <b>${esc(exam.ownerName || 'otra cuenta')}</b>. Puedes generar las hojas ya creadas, corregir y ver las notas, y lo que corrijas lo ve también ${esc(exam.ownerName || 'quien lo creó')}.</p>
+      <p class="muted small">Las preguntas, el grupo y los datos del examen solo los puede cambiar quien lo creó.</p>
+      <div class="row end"><button class="btn primary" data-close>Vale</button></div>`);
+    s.querySelector('[data-close]').onclick = closeModal;
+    return;
+  }
+  if (!ownGroups().length) {
     const s = modal(`<h3>Primero, un grupo</h3>
       <p>Para imprimir un examen con el nombre de cada alumno o alumna, antes hay que crear el grupo con su lista.</p>
       <div class="row end"><button class="btn" data-close>Cancelar</button><a class="btn primary" href="#/grupos">Ir a Grupos</a></div>`);
@@ -255,7 +283,7 @@ function examForm(exam) {
     return;
   }
   const modules = [...new Set(state.exams.map(e => e.module).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
-  const e = exam || { title: '', module: modules[0] || '', groupId: state.groups[0].id, penalty: 0.25, shuffleQ: true, shuffleO: true, sheet: 'guias' };
+  const e = exam || { title: '', module: modules[0] || '', groupId: ownGroups()[0].id, penalty: 0.25, shuffleQ: true, shuffleO: true, sheet: 'guias' };
   const known = PENALTIES.some(p => Math.abs(p.v - e.penalty) < 1e-6);
   const s = modal(`<h3>${exam ? 'Datos del examen' : 'Nuevo examen'}</h3>
     <form id="ef">
@@ -272,7 +300,7 @@ function examForm(exam) {
         <input type="text" name="title" value="${esc(e.title)}" placeholder="${exam ? '' : 'Si lo dejas vacío, se usa la categoría del archivo'}">
       </label>
       <label class="field"><span>Grupo</span>
-        <select name="group">${state.groups.map(g => `<option value="${g.id}" ${g.id === e.groupId ? 'selected' : ''}>${esc(g.name)} (${g.students.length})</option>`).join('')}</select>
+        <select name="group">${ownGroups().map(g => `<option value="${g.id}" ${g.id === e.groupId ? 'selected' : ''}>${esc(g.name)} (${g.students.length})</option>`).join('')}</select>
       </label>
       <label class="field"><span>Penalización por error</span>
         <select name="pen">
@@ -354,6 +382,7 @@ const openSum = exam => (exam.open || []).reduce((a, q) => a + (+q.points || 0),
 const pointsOk = exam => !exam.open?.length || (exam.testPoints != null && Math.abs(exam.testPoints + openSum(exam) - 10) < 1e-6);
 
 function pointsDialog(exam, done = route) {
+  if (sharedBy(exam)) return done();
   const open = exam.open || [];
   const N = exam.questions.length;
   const s = modal(`<h3>Reparto de la nota</h3>
@@ -440,6 +469,7 @@ function pointsDialog(exam, done = route) {
 function viewOpen(examId, qid) {
   const exam = examById(examId);
   if (!exam) { location.hash = '#/'; return; }
+  if (sharedBy(exam)) { location.hash = `#/examen/${examId}/preguntas`; return; }
   exam.open ||= [];
   const isNew = qid === 'nueva';
   const orig = exam.open.find(q => q.id === qid);
@@ -576,8 +606,12 @@ function viewExam(id, tab) {
     exportData({ groups: g ? [g] : [], exams: [exam] }, `CapiTest_examen_${safeName(exam.title)}.json`);
   };
   const tabs = [['preguntas', 'Preguntas'], ['imprimir', 'Imprimir'], ['corregir', 'Corregir'], ['notas', 'Notas']];
-  main().innerHTML = `<div class="seg">${tabs.map(([k, t]) => `<a href="#/examen/${id}/${k}" class="${k === tab ? 'on' : ''} ${!exam.printed && (k === 'corregir' || k === 'notas') ? 'off' : ''}">${t}</a>`).join('')}<a href="#" id="edit">Datos</a></div><div id="tab"></div>`;
+  const canShare = net.server && net.user && !sharedBy(exam);
+  main().innerHTML = `<div class="seg">${tabs.map(([k, t]) => `<a href="#/examen/${id}/${k}" class="${k === tab ? 'on' : ''} ${!exam.printed && (k === 'corregir' || k === 'notas') ? 'off' : ''}">${t}</a>`).join('')}<a href="#" id="edit">Datos</a>${canShare ? '<a href="#" id="share">Compartir</a>' : ''}</div>
+    ${sharedBy(exam) ? `<div class="banner info">Examen de <b>${esc(exam.ownerName || 'otra cuenta')}</b> compartido contigo: puedes corregir y ver las notas. Las preguntas y los datos solo los cambia quien lo creó.</div>` : ''}
+    <div id="tab"></div>`;
   $('#edit').onclick = e => { e.preventDefault(); examForm(exam); };
+  if (canShare) $('#share').onclick = e => { e.preventDefault(); shareDialog(exam); };
   const el = $('#tab');
   ({ preguntas: tabQuestions, imprimir: tabPrint, corregir: tabScan, notas: tabGrades }[tab] || tabQuestions)(exam, el);
 }
@@ -632,6 +666,14 @@ function tabQuestions(exam, el) {
   }
   html += `<a class="btn small" style="margin-top:8px" href="#/examen/${exam.id}/abierta/nueva">+ Pregunta para corregir a mano</a>`;
   el.innerHTML = html;
+  if (sharedBy(exam)) {
+    // Solo lectura: sin importar, añadir, mover, borrar ni editar
+    $('#imp', el)?.closest('.row')?.remove();
+    $$('.tools, #pts', el).forEach(x => x.remove());
+    $$('a.btn[href$="/abierta/nueva"]', el).forEach(x => x.remove());
+    $$('a.body', el).forEach(a => a.removeAttribute('href'));
+    return;
+  }
   $('#imp').onclick = () => importDialog(exam);
   if ($('#pts')) $('#pts').onclick = () => pointsDialog(exam);
   const omove = async (i, d) => {
@@ -671,6 +713,7 @@ function tabQuestions(exam, el) {
 function viewQuestion(examId, qid) {
   const exam = examById(examId);
   if (!exam) { location.hash = '#/'; return; }
+  if (sharedBy(exam)) { location.hash = `#/examen/${examId}/preguntas`; return; }
   const isNew = qid === 'nueva';
   const orig = exam.questions.find(q => q.id === qid);
   if (!isNew && !orig) { location.hash = `#/examen/${examId}`; return; }
@@ -770,6 +813,13 @@ function viewQuestion(examId, qid) {
 
 function tabPrint(exam, el) {
   const g = groupById(exam.groupId);
+  if (sharedBy(exam)) {
+    const st0 = printState(exam, g);
+    if (st0 !== 'ok') {
+      el.innerHTML = `<p class="empty">${st0 === 'never' ? 'Todavía no se han creado las hojas de este examen' : 'Hay cambios desde la última impresión'}.<br>Las hojas las genera ${esc(exam.ownerName || 'quien creó el examen')}; después podrás descargarlas aquí</p>`;
+      return;
+    }
+  }
   const st = printState(exam, g);
   const n = exam.questions.length, max = maxQuestions(nopt(exam));
   const opts = exam.printOpts || { duplex: false, reserves: 3 };
@@ -801,7 +851,7 @@ function tabPrint(exam, el) {
     btn.textContent = 'Generando…';
     try {
       exam.printed = buildPrint(exam, g, reserves);
-      await saveExam(exam);
+      if (!sharedBy(exam)) await saveExam(exam);
       const blob = examPDF(exam, g, await printSettings(), { duplex });
       state.pdf = { blob, filename: `CapiTest_${safeName(exam.title)}.pdf` };
       tabPrint(exam, el);
@@ -829,6 +879,41 @@ function showPdfOut() {
   if ($('#share')) $('#share').onclick = () => shareFile(state.pdf.blob, state.pdf.filename, state.pdf.filename);
   $('#dl').onclick = () => downloadFile(state.pdf.blob, state.pdf.filename);
   $('#open').onclick = () => window.open(URL.createObjectURL(state.pdf.blob), '_blank');
+}
+
+// Compartir un examen con otras cuentas: ven lo mismo, corrigen y ven las notas.
+async function shareDialog(exam) {
+  let list, people;
+  try {
+    [{ compartido: list }, { profesorado: people }] = await Promise.all([api(`compartir/${exam.id}`), api('profesorado')]);
+  } catch (e) {
+    return toast(e instanceof ApiError ? e.message : 'Para compartir hace falta conexión con el servidor');
+  }
+  const s = modal('<div id="shb"></div>');
+  const draw = () => {
+    const free = people.filter(p => !list.some(x => x.usuario === p.usuario));
+    s.querySelector('#shb').innerHTML = `<h3>Compartir «${esc(exam.title)}»</h3>
+      <p class="small" style="margin-top:0">Quien tenga acceso ve este examen como tú: genera las hojas ya creadas, corrige y ve las notas. Las preguntas y los datos solo los cambias tú.</p>
+      ${list.length ? list.map(x => `<div class="row" style="align-items:center"><span class="grow">${esc(x.nombre)} <span class="muted small">${esc(x.usuario)}</span></span>
+        <button class="btn small danger" data-unshare="${esc(x.usuario)}">Quitar</button></div>`).join('') : '<p class="muted">Todavía no lo has compartido con nadie.</p>'}
+      ${free.length ? `<div class="row" style="margin-top:12px"><select id="who" class="grow"><option value="">Elige a un profesor o profesora…</option>
+        ${free.map(p => `<option value="${esc(p.usuario)}">${esc(p.nombre)} (${esc(p.usuario)})</option>`).join('')}</select>
+        <button class="btn primary" id="add">Añadir</button></div>` : ''}
+      <div class="row end" style="margin-top:12px"><button class="btn" data-close>Hecho</button></div>`;
+    s.querySelector('[data-close]').onclick = closeModal;
+    const send = async (usuario, quitar) => {
+      try {
+        ({ compartido: list } = await api(`compartir/${exam.id}`, { usuario, quitar }));
+        exam.compartido = list;
+        await saveExam(exam);
+        toast(quitar ? 'Ya no está compartido' : 'Examen compartido');
+        draw();
+      } catch (e) { toast(e instanceof ApiError ? e.message : 'No hay conexión con el servidor'); }
+    };
+    if (s.querySelector('#add')) s.querySelector('#add').onclick = () => { const u = s.querySelector('#who').value; if (u) send(u, false); else toast('Elige a quién'); };
+    $$('[data-unshare]', s).forEach(b => (b.onclick = () => { if (confirm('¿Dejar de compartir el examen? Las notas que haya corregido se quedan.')) send(b.dataset.unshare, true); }));
+  };
+  draw();
 }
 
 /* ---------- Corregir ---------- */
@@ -1083,6 +1168,7 @@ function tabGrades(exam, el) {
   if ($('#xshare')) $('#xshare').onclick = () => { const x = xl(); shareFile(x.blob, x.filename, exam.title); };
   $('#xdl').onclick = () => { const x = xl(); downloadFile(x.blob, x.filename); };
   $$('tr[data-sid]', el).forEach(tr => (tr.onclick = () => studentDetail(exam, tr.dataset.sid, students.find(s => s.id === tr.dataset.sid)?.name, () => tabGrades(exam, el))));
+  if (sharedBy(exam)) $$('[data-annul]', el).forEach(b => b.remove());
   $$('[data-annul]', el).forEach(b => (b.onclick = async () => {
     const q = exam.questions.find(x => x.id === b.dataset.annul);
     q.annulled = !q.annulled;
@@ -1137,7 +1223,7 @@ function studentDetail(exam, sid, name, done) {
 function viewGroups() {
   setHeader('Grupos');
   setNav('grupos');
-  const list = [...state.groups].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+  const list = ownGroups().sort((a, b) => a.name.localeCompare(b.name, 'es'));
   main().innerHTML = `<button class="btn primary block" id="ng">+ Nuevo grupo</button>
     ${list.length ? '<div style="height:12px"></div>' : `<p class="empty">Crea un grupo por cada clase e importa su lista de alumnado${net.server ? ' de Séneca' : ''}</p>`}
     ${list.map(g => `<a class="card" href="#/grupo/${g.id}"><div class="card-title">${esc(g.name)}</div><div class="muted">${plural(g.students.length, 'alumno/a', 'alumnos/as')}</div></a>`).join('')}`;
@@ -1161,7 +1247,7 @@ function viewGroups() {
 
 function viewGroup(id) {
   const g = groupById(id);
-  if (!g) { location.hash = '#/grupos'; return; }
+  if (!g || g.owner) { location.hash = '#/grupos'; return; }
   setNav('grupos');
   setHeader(g.name, '#/grupos');
   main().innerHTML = `

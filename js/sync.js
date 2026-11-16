@@ -113,9 +113,10 @@ async function refreshPending() {
 }
 
 // Apunta un cambio para subirlo. Sin servidor no hace nada.
-export async function queue(kind, id, doc, updated, deleted = false) {
+// owner: en un examen compartido, la cuenta de la propietaria (la nota se guarda en su examen).
+export async function queue(kind, id, doc, updated, deleted = false, owner = null) {
   if (!net.server) return;
-  await db.put('outbox', { key: `${kind}:${id}`, kind, id, doc: deleted ? null : doc, updated, deleted, seq: ++seq });
+  await db.put('outbox', { key: `${kind}:${id}`, kind, id, doc: deleted ? null : doc, updated, deleted, owner, seq: ++seq });
   await refreshPending();
   onState();
   clearTimeout(debounce);
@@ -141,25 +142,27 @@ export async function run() {
   setState('syncing');
   try {
     let since = (await db.getMeta('since')) || 0;
-    const incoming = [];
+    const incoming = [], gone = [];
     for (;;) {
       const pending = await db.all('outbox');
       const batch = nextBatch(pending);
       const res = await api('sync', {
         since,
-        changes: batch.map(({ kind, id, doc, updated, deleted }) => ({ kind, id, doc, updated, deleted })),
+        changes: batch.map(({ kind, id, doc, updated, deleted, owner }) => ({ kind, id, doc, updated, deleted, ...(owner ? { owner } : {}) })),
       }, { timeout: 120000 });
       for (const p of batch) {
         const cur = await db.get('outbox', p.key);
         if (cur && cur.seq === p.seq) await db.del('outbox', p.key);
       }
       incoming.push(...res.changes);
+      // Exámenes que ya no están compartidos con esta cuenta
+      gone.push(...(res.unshared || []).map(u => ({ kind: 'unshare', id: u.exam, owner: u.owner })));
       since = res.rev;
       if (!res.more && batch.length === pending.length) break;
     }
     const waiting = new Set((await db.all('outbox')).map(p => p.key));
     const fresh = incoming.filter(c => !waiting.has(`${c.kind}:${c.id}`));
-    if (fresh.length) await apply(fresh);
+    if (fresh.length || gone.length) await apply([...fresh, ...gone]);
     await db.setMeta('since', since);
     await refreshPending();
     net.lastSync = Date.now();

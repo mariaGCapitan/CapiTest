@@ -387,6 +387,59 @@ def create_app(database=None, secure=None, behind_proxy=None):
         except ValueError as e:
             return error(str(e))
 
+    # Profesorado al que se puede compartir un examen (todas las cuentas activas menos la propia).
+    @app.get('/api/profesorado')
+    def colleagues():
+        u = need_user()
+        rows = con().execute('SELECT usuario, nombre FROM usuarios WHERE activo = 1 AND id != ? ORDER BY nombre',
+                             (u['id'],)).fetchall()
+        return jsonify(profesorado=[dict(r) for r in rows])
+
+    def own_exam(u, exam_id):
+        return con().execute("SELECT 1 FROM items WHERE user_id = ? AND kind = 'exam' AND id = ? AND deleted = 0",
+                             (u['id'], exam_id)).fetchone() is not None
+
+    def members(u, exam_id):
+        rows = con().execute('''SELECT x.usuario, x.nombre FROM compartidos c JOIN usuarios x ON x.id = c.user_id
+                                WHERE c.owner_id = ? AND c.exam_id = ? AND c.activo = 1 ORDER BY x.nombre''',
+                             (u['id'], exam_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    @app.get('/api/compartir/<exam_id>')
+    def shared_list(exam_id):
+        u = need_user()
+        if not db.ID_RE.match(exam_id) or not own_exam(u, exam_id):
+            return error('Solo quien creó el examen puede compartirlo', 403)
+        return jsonify(compartido=members(u, exam_id))
+
+    @app.post('/api/compartir/<exam_id>')
+    def share(exam_id):
+        u = need_user()
+        if not db.ID_RE.match(exam_id) or not own_exam(u, exam_id):
+            return error('Solo quien creó el examen puede compartirlo', 403)
+        d = body()
+        usuario = str(d.get('usuario', '')).strip().lower()
+        other = con().execute('SELECT id, nombre FROM usuarios WHERE usuario = ? AND activo = 1', (usuario,)).fetchone()
+        if not other or other['id'] == u['id']:
+            return error('No existe esa cuenta')
+        quitar = bool(d.get('quitar'))
+        c = con()
+        c.execute('BEGIN IMMEDIATE')
+        try:
+            rev = db._next_rev(c)
+            c.execute('''INSERT INTO compartidos (owner_id, exam_id, user_id, activo, rev) VALUES (?, ?, ?, ?, ?)
+                         ON CONFLICT (owner_id, exam_id, user_id) DO UPDATE SET activo = excluded.activo, rev = excluded.rev''',
+                      (u['id'], exam_id, other['id'], 0 if quitar else 1, rev))
+            if not quitar:
+                db.touch_shared(c, u['id'], exam_id)
+            c.execute('COMMIT')
+        except Exception:
+            c.execute('ROLLBACK')
+            raise
+        db.log(c, u['usuario'], f"{'deja de compartir' if quitar else 'comparte'} el examen {exam_id} con {usuario}",
+               request.remote_addr)
+        return jsonify(compartido=members(u, exam_id))
+
     @app.get('/api/usuarios')
     def list_users():
         need_user(admin=True)

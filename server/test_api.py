@@ -416,3 +416,67 @@ class EstadoCuentas(Base):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Compartir(Base):
+    def setUp(self):
+        super().setUp()
+        self.m, self.p = self.client('maria'), self.client('pepe')
+        self.sync(self.m, changes=[item('group', 'g1', 1, name='1A', students=[{'id': 's1', 'name': 'A'}, {'id': 's2', 'name': 'B'}]),
+                                   item('exam', 'e1', 1, title='T1', groupId='g1'),
+                                   item('result', 'e1/s1', 1, answers={'q1': 0}),
+                                   item('exam', 'e2', 1, title='T2', groupId='g1')])
+        self.rp = self.sync(self.p)['rev']
+
+    def ids(self, res):
+        return sorted((c['kind'], c['id']) for c in res['changes'])
+
+    def test_compartir_y_corregir(self):
+        self.assertEqual(self.sync(self.p, since=self.rp)['changes'], [])
+        # Solo la propietaria comparte
+        r = self.p.post('/api/compartir/e1', json={'usuario': 'maria'}, headers=H)
+        self.assertEqual(r.status_code, 403)
+        r = self.m.post('/api/compartir/e1', json={'usuario': 'pepe'}, headers=H)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([x['usuario'] for x in r.get_json()['compartido']], ['pepe'])
+        # Al invitado le llegan el examen, su grupo y sus notas, con la propietaria
+        res = self.sync(self.p, since=self.rp)
+        self.assertEqual(self.ids(res), [('exam', 'e1'), ('group', 'g1'), ('result', 'e1/s1')])
+        mid = res['changes'][0]['owner']
+        self.assertTrue(all(c['owner'] == mid and c['ownerName'] == 'Maria' for c in res['changes']))
+        # El invitado corrige: la nota se guarda en el examen de la propietaria
+        res2 = self.sync(self.p, since=res['rev'], changes=[{**item('result', 'e1/s2', 5, answers={'q1': 1}), 'owner': mid}])
+        self.assertEqual(res2['rejected'], [])
+        got = self.sync(self.m, since=0)
+        self.assertIn(('result', 'e1/s2'), self.ids(got))
+        self.assertTrue(all('owner' not in c for c in got['changes']))
+        # Pero no puede cambiar el examen ni tocar otro examen
+        res3 = self.sync(self.p, since=res2['rev'], changes=[{**item('exam', 'e1', 9, title='X'), 'owner': mid},
+                                                             {**item('result', 'e2/s1', 9, answers={}), 'owner': mid}])
+        self.assertEqual(len(res3['rejected']), 2)
+        exam = [c for c in self.sync(self.m, since=0)['changes'] if c['id'] == 'e1' and c['kind'] == 'exam'][0]
+        self.assertEqual(exam['doc']['title'], 'T1')
+        # La propietaria corrige y el invitado lo recibe
+        rm = self.sync(self.m, since=0)['rev']
+        self.sync(self.m, since=rm, changes=[item('result', 'e1/s1', 20, answers={'q1': 3})])
+        res4 = self.sync(self.p, since=res3['rev'])
+        self.assertEqual(self.ids(res4), [('result', 'e1/s1')])
+        # Dejar de compartir: el invitado recibe el aviso y ya no puede guardar
+        self.m.post('/api/compartir/e1', json={'usuario': 'pepe', 'quitar': True}, headers=H)
+        res5 = self.sync(self.p, since=res4['rev'])
+        self.assertEqual(res5['unshared'], [{'owner': mid, 'exam': 'e1'}])
+        res6 = self.sync(self.p, since=res5['rev'], changes=[{**item('result', 'e1/s2', 30, answers={}), 'owner': mid}])
+        self.assertEqual(len(res6['rejected']), 1)
+        self.assertEqual(self.sync(self.p, since=res6['rev'])['changes'], [])
+
+    def test_lista_de_profesorado(self):
+        r = self.p.get('/api/profesorado').get_json()['profesorado']
+        self.assertEqual([x['usuario'] for x in r], ['maria'])
+
+    def test_borrar_el_examen_lo_quita_al_invitado(self):
+        self.m.post('/api/compartir/e1', json={'usuario': 'pepe'}, headers=H)
+        res = self.sync(self.p, since=self.rp)
+        rm = self.sync(self.m, since=0)['rev']
+        self.sync(self.m, since=rm, changes=[{'kind': 'exam', 'id': 'e1', 'updated': 50, 'deleted': True}])
+        res2 = self.sync(self.p, since=res['rev'])
+        self.assertEqual([u['exam'] for u in res2['unshared']], ['e1'])
