@@ -81,8 +81,10 @@ export function examPDF(exam, group, settings, { duplex }) {
     drawAnswerSheet(doc, exam, settings, v, p);
     if (duplex) doc.addPage();
     const before = doc.getNumberOfPages();
-    drawQuestions(doc, exam, settings, v, label);
-    const qPages = doc.getNumberOfPages() - before + 1;
+    drawQuestions(doc, exam, settings, v, label); // empieza en una página nueva
+    // A doble cara, cada alumno empieza en un folio nuevo: solo hace falta un reverso en blanco
+    // si sus páginas de preguntas son impares.
+    const qPages = doc.getNumberOfPages() - before;
     if (duplex && qPages % 2) doc.addPage();
   }
   return doc.output('blob');
