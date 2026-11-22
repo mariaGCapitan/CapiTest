@@ -312,3 +312,7 @@ table.list td.num, table.list th.num { text-align: right; font-variant-numeric: 
 .abierta input.bad { outline: 2px solid var(--bad); color: var(--bad); }
 .nowrap { white-space: nowrap; }
 .abierta > .nowrap { flex: none; width: 7.5em; text-align: right; }
+
+.top h1 .marca-top { display: flex; align-items: center; gap: 6px; flex: none; color: var(--ink); text-decoration: none; font-weight: 800; letter-spacing: -.02em; }
+.top h1 .marca-top img.mini { margin-right: 0; }
+.top h1 .marca-top + span { min-width: 0; overflow: hidden; text-overflow: ellipsis; border-left: 1px solid var(--line); padding-left: 12px; margin-left: 4px; font-weight: 600; }

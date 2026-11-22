@@ -171,7 +171,8 @@ async function printSettings() {
 const main = () => $('#main');
 
 function setHeader(title, back, actions = '') {
-  $('#title').innerHTML = (back ? `<a class="back" href="${back}" aria-label="Volver">‹</a>` : '<img class="mini" src="icons/logo-capitest.png" alt="">') + `<span>${esc(title)}</span>`;
+  $('#title').innerHTML = (back ? `<a class="back" href="${back}" aria-label="Volver">‹</a>` : '')
+    + '<a class="marca-top" href="#/"><img class="mini" src="icons/logo-capitest.png" alt="">CapiTest</a>' + `<span>${esc(title)}</span>`;
   $('#top-actions').innerHTML = actions;
 }
 function setNav(name) {
