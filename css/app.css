@@ -207,6 +207,8 @@ input.mal, input.mal:focus { border-color: var(--bad); outline: 2px solid var(--
 .seg a { flex: 1; text-align: center; text-decoration: none; color: var(--muted); padding: 8px 4px; border-radius: 9px; font-weight: 600; font-size: .88rem; }
 .seg a.on { background: var(--brand); color: var(--brand-ink); }
 .seg a.off:not(.on) { opacity: .45; }
+/* En el móvil no caben las seis en una fila: van en dos filas de tres */
+@media (max-width: 520px) { .seg { display: grid; grid-template-columns: repeat(3, 1fr); } }
 
 /* Preguntas */
 .q { display: flex; gap: 10px; align-items: flex-start; }
